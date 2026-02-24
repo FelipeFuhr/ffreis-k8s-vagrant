@@ -1,0 +1,70 @@
+cluster:
+  control_planes: 3
+  workers: 2
+
+provider:
+  name: libvirt
+
+resources:
+  control_plane:
+    cpus: 2
+    memory: 4096
+  worker:
+    cpus: 2
+    memory: 3072
+  api_lb:
+    cpus: 1
+    memory: 1024
+
+network:
+  prefix: 10.30.0
+  pod_cidr: 10.244.0.0/16
+  service_cidr: 10.96.0.0/12
+  api_lb:
+    enabled: true
+    ip: 10.30.0.5
+    hostname: k8s-api.local
+
+kubernetes:
+  channel: v1.30
+  version: 1.30.6-1.1
+  cni: flannel
+  cni_manifest_flannel: https://github.com/flannel-io/flannel/releases/download/v0.26.3/kube-flannel.yml
+  cni_manifest_calico: https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml
+  cni_manifest_cilium: https://raw.githubusercontent.com/cilium/cilium/v1.16.5/install/kubernetes/quick-install.yaml
+  pause_image: registry.k8s.io/pause:3.9
+
+vagrant:
+  box: bento/ubuntu-24.04
+  box_version: 202508.03.0
+
+packages:
+  containerd: 1.7.28-0ubuntu1~24.04.2
+  haproxy: 2.8.16-0ubuntu0.24.04.1
+
+apt:
+  proxy: ""
+
+ssh:
+  public_key: ""
+
+tuning:
+  join_max_wait_seconds: 900
+  join_poll_seconds: 5
+  cp_join_warn_show_limit: 2
+  cp_join_warn_report_interval_seconds: 120
+  cp_join_warn_report_every: 250
+  cp_join_retry_attempts: 5
+  cp_join_retry_sleep_seconds: 15
+  cp_join_retry_backoff_factor: 2
+  cp_join_retry_max_sleep_seconds: 90
+  cp_join_retry_max_total_seconds: 1200
+  cp_stabilize_timeout_seconds: 600
+  cp_stabilize_poll_seconds: 5
+  validate_ready_timeout_seconds: 300
+  validate_ready_poll_seconds: 5
+  vagrant_retry_attempts: 10
+  vagrant_retry_sleep_seconds: 15
+  vagrant_retry_backoff_factor: 2
+  vagrant_retry_max_sleep_seconds: 120
+  vagrant_retry_max_total_seconds: 1200
