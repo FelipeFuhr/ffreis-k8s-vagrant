@@ -15,6 +15,7 @@ Deterministic kubeadm-based Kubernetes lab on Vagrant VMs.
    ```bash
    make probe-host
    make doctor
+   make preflight
    ```
 3. Tune `config/cluster.yaml` (`cluster.control_planes`, `cluster.workers`, `provider.name`, `kubernetes.cni`, `network.api_lb.enabled`).
 4. Create cluster:
@@ -57,6 +58,12 @@ make bake-box-packer
 make bake-box-vagrant
 ```
 
+Host prerequisites for `make bake-box-vagrant` on `libvirt`:
+```bash
+sudo apt-get update
+sudo apt-get install -y libguestfs-tools qemu-utils
+```
+
 Then set in `config/cluster.env`:
 ```bash
 KUBE_BOX=ffreis/k8s-base-ubuntu24
@@ -67,6 +74,12 @@ Optional bake tuning env vars:
 - `KUBE_BAKED_BOX_NAME`
 - `KUBE_BAKED_CPUS`
 - `KUBE_BAKED_MEMORY`
+- `KUBE_BAKE_SOURCE_BOX` (default `bento/ubuntu-24.04`)
+- `KUBE_BAKE_SOURCE_BOX_VERSION` (Vagrant bake path)
+
+Default behavior:
+- `make up` runs `make ensure-box` first.
+- If the default baked box (`ffreis/k8s-base-ubuntu24`) is missing, it is auto-built.
 
 ## Inputs this project expects from your local system
 Run `make probe-host` and use the output to choose:
@@ -119,10 +132,17 @@ It improves control-plane resilience versus anchoring API traffic to `cp1`, but 
 - `make hello-workers`: deploys a hello workload and verifies it runs on workers.
 - `make taint-demo`: applies a taint to a worker and demonstrates block/allow with tolerations.
 - `make demo-cleanup`: removes demo namespace and demo taints.
+- `make ensure-box`: ensures default local baked box exists (auto-builds if missing).
+- `make verify-box`: lightweight boot/SSH check for the configured box before full cluster bring-up.
+- `make preflight`: topology-aware host resource and route/CIDR conflict checks.
+- `make phase-infra`: run infra and control-plane phases only.
+- `make phase-workers`: run worker phases only (expects control plane ready).
 - `make up`: starts all VMs and provisions Kubernetes.
 - `make kubeconfig`: copies kubeconfig from `cp1` to `.cluster/admin.conf`.
 - `make validate`: checks node readiness, CoreDNS, and scheduling.
 - `make destroy`: tears down VMs and generated state.
+- `make destroy-strict`: destroy and assert no residual libvirt domains with project prefix.
+- `make collect-failures`: collect VM logs/network snapshots into `.cluster/failures`.
 - `make test`: static checks for scripts and `Vagrantfile`.
 
 ## Vagrant/libvirt compatibility
@@ -179,9 +199,18 @@ Legacy note:
 - `scripts/lib/logging.sh`: node-aware log helper functions.
 - `scripts/lib/retry.sh`: retry and apt/download helpers.
 - `scripts/lib/script_init.sh`: shared script lib-directory bootstrap and lib sourcing.
+- `scripts/lib/error.sh`: shared error-trap/log helper for consistent script failures.
+- `scripts/lib/vagrant_lock.sh`: lock/process cleanup helpers used by Vagrant retry wrapper.
+- `scripts/lib/preflight.sh`: shared topology/resource/network preflight checks.
+- `scripts/lib/node_contract.sh`: reusable node identity/resource/role checks.
+- `scripts/lib/state.sh`: lightweight cluster run-state metadata helpers.
 - `scripts/lib/cluster_state.sh`: artifact waiting and join-command parsing helpers.
 - `scripts/lib/kubernetes_wait.sh`: Kubernetes/IP readiness wait helpers.
 - `scripts/lib/etcd_ops.sh`: etcd member cleanup helpers for control-plane join recovery.
 - `scripts/lib/join_retry.sh`: reusable backoff retry loop for join workflows.
 - `scripts/vagrant_retry.sh`: lock-aware Vagrant command wrapper.
+- `scripts/cleanup_all.sh`: canonical cleanup entrypoint for cluster and bake state.
+- `scripts/check_cp1_ready.sh`: validates cp1 API/node/artifacts readiness contract.
+- `scripts/run_up_flow.sh`: phase-based orchestration (preflight, infra, cp bootstrap, worker parallelism, kubeconfig).
+- `scripts/collect_failures.sh`: centralized failure bundle collection.
 - `scripts/libvirt_cleanup.sh`: orphan domain/volume cleanup with optional sudo prompt.

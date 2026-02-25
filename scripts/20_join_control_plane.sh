@@ -10,7 +10,8 @@ else
   source "${SCRIPT_DIR}/lib/script_init.sh"
 fi
 init_script_lib_dir "${BASH_SOURCE[0]}"
-source_script_libs cluster_state retry etcd_ops join_retry
+source_script_libs cluster_state retry etcd_ops join_retry error
+setup_error_trap "$(basename "${BASH_SOURCE[0]}")"
 
 MAX_WAIT_SECONDS="${KUBE_JOIN_MAX_WAIT_SECONDS:-${MAX_WAIT_SECONDS:-900}}"
 SLEEP_SECONDS="${KUBE_JOIN_POLL_SECONDS:-${SLEEP_SECONDS:-5}}"
@@ -32,9 +33,37 @@ if [[ -f /etc/kubernetes/kubelet.conf ]]; then
   exit 0
 fi
 
+prejoin_peer_connectivity_check() {
+  local current_idx peer_idx peer_name peer_ip
+  if [[ ! "${node_name}" =~ ^cp([0-9]+)$ ]]; then
+    return 0
+  fi
+  current_idx="${BASH_REMATCH[1]}"
+  if [[ "${current_idx}" -le 1 ]]; then
+    return 0
+  fi
+
+  for peer_idx in $(seq 1 $((current_idx - 1))); do
+    peer_name="cp${peer_idx}"
+    peer_ip="$(getent hosts "${peer_name}" | awk '{print $1; exit}' || true)"
+    if [[ -z "${peer_ip}" ]]; then
+      echo "Pre-join network check failed: cannot resolve ${peer_name}" >&2
+      echo "Ensure /etc/hosts contains cluster node mappings." >&2
+      return 1
+    fi
+
+    # etcd peer traffic must be reachable before attempting join.
+    if ! retry 6 timeout 5 bash -c "echo > /dev/tcp/${peer_ip}/2380"; then
+      echo "Pre-join network check failed: cannot reach ${peer_name} (${peer_ip}):2380" >&2
+      return 1
+    fi
+  done
+}
+
 wait_for_artifact /vagrant/.cluster/ready "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
 wait_for_artifact /vagrant/.cluster/join.sh "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
 wait_for_artifact /vagrant/.cluster/certificate-key "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
+prejoin_peer_connectivity_check
 
 load_join_values /vagrant/.cluster/join.sh
 ENDPOINT="${JOIN_ENDPOINT}"

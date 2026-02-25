@@ -10,7 +10,8 @@ else
   source "${SCRIPT_DIR}/lib/script_init.sh"
 fi
 init_script_lib_dir "${BASH_SOURCE[0]}"
-source_script_libs cluster_state
+source_script_libs cluster_state error
+setup_error_trap "$(basename "${BASH_SOURCE[0]}")"
 
 MAX_WAIT_SECONDS="${KUBE_JOIN_MAX_WAIT_SECONDS:-${MAX_WAIT_SECONDS:-900}}"
 SLEEP_SECONDS="${KUBE_JOIN_POLL_SECONDS:-${SLEEP_SECONDS:-5}}"

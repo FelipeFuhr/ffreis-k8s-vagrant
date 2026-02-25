@@ -30,4 +30,6 @@ done
 
 rm -f "${tmp_mk}"
 
+./tests/test_vagrant_lock_lib.sh
+
 echo "Static checks passed"

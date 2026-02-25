@@ -10,7 +10,8 @@ else
   source "${SCRIPT_DIR}/lib/script_init.sh"
 fi
 init_script_lib_dir "${BASH_SOURCE[0]}"
-source_script_libs retry
+source_script_libs retry error
+setup_error_trap "$(basename "${BASH_SOURCE[0]}")"
 
 NODE_NAME="${NODE_NAME:-api-lb}"
 CP_COUNT="${CP_COUNT:-1}"

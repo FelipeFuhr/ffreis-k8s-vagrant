@@ -6,7 +6,7 @@ PACKER_DIR="${ROOT_DIR}/packer"
 BOX_DIR="${ROOT_DIR}/.bake/boxes"
 
 KUBE_PROVIDER="${KUBE_PROVIDER:-libvirt}"
-KUBE_BOX="${KUBE_BOX:-bento/ubuntu-24.04}"
+KUBE_BAKE_SOURCE_BOX="${KUBE_BAKE_SOURCE_BOX:-bento/ubuntu-24.04}"
 KUBE_VERSION="${KUBE_VERSION:-1.30.6-1.1}"
 KUBE_CHANNEL="${KUBE_CHANNEL:-v1.30}"
 KUBE_CONTAINERD_VERSION="${KUBE_CONTAINERD_VERSION:-1.7.28-0ubuntu1~24.04.2}"
@@ -27,7 +27,7 @@ pushd "${PACKER_DIR}" >/dev/null
 packer init k8s-base.pkr.hcl
 packer build \
   -var "provider=${KUBE_PROVIDER}" \
-  -var "source_box=${KUBE_BOX}" \
+  -var "source_box=${KUBE_BAKE_SOURCE_BOX}" \
   -var "box_output=${BOX_FILE}" \
   -var "kube_version=${KUBE_VERSION}" \
   -var "kube_channel=${KUBE_CHANNEL}" \

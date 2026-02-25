@@ -34,6 +34,8 @@ mappings = {
   'KUBE_CP_COUNT' => ['cluster', 'control_planes'],
   'KUBE_WORKER_COUNT' => ['cluster', 'workers'],
   'KUBE_PROVIDER' => ['provider', 'name'],
+  'KUBE_LIBVIRT_CPU_MODE' => ['provider', 'libvirt', 'cpu_mode'],
+  'KUBE_LIBVIRT_CPU_MODEL' => ['provider', 'libvirt', 'cpu_model'],
   'KUBE_CP_CPUS' => ['resources', 'control_plane', 'cpus'],
   'KUBE_CP_MEMORY' => ['resources', 'control_plane', 'memory'],
   'KUBE_WORKER_CPUS' => ['resources', 'worker', 'cpus'],
@@ -61,6 +63,10 @@ mappings = {
   'KUBE_SSH_PUBKEY' => ['ssh', 'public_key'],
   'KUBE_JOIN_MAX_WAIT_SECONDS' => ['tuning', 'join_max_wait_seconds'],
   'KUBE_JOIN_POLL_SECONDS' => ['tuning', 'join_poll_seconds'],
+  'KUBE_CP1_INIT_TIMEOUT_SECONDS' => ['tuning', 'cp1_init_timeout_seconds'],
+  'KUBE_CP1_PREPULL_IMAGES' => ['tuning', 'cp1_prepull_images'],
+  'KUBE_CP1_PREPULL_TIMEOUT_SECONDS' => ['tuning', 'cp1_prepull_timeout_seconds'],
+  'KUBE_CP1_PROGRESS_INTERVAL_SECONDS' => ['tuning', 'cp1_progress_interval_seconds'],
   'KUBE_CP_JOIN_WARN_SHOW_LIMIT' => ['tuning', 'cp_join_warn_show_limit'],
   'KUBE_CP_JOIN_WARN_REPORT_INTERVAL_SECONDS' => ['tuning', 'cp_join_warn_report_interval_seconds'],
   'KUBE_CP_JOIN_WARN_REPORT_EVERY' => ['tuning', 'cp_join_warn_report_every'],
@@ -77,7 +83,10 @@ mappings = {
   'KUBE_VAGRANT_RETRY_SLEEP_SECONDS' => ['tuning', 'vagrant_retry_sleep_seconds'],
   'KUBE_VAGRANT_RETRY_BACKOFF_FACTOR' => ['tuning', 'vagrant_retry_backoff_factor'],
   'KUBE_VAGRANT_RETRY_MAX_SLEEP_SECONDS' => ['tuning', 'vagrant_retry_max_sleep_seconds'],
-  'KUBE_VAGRANT_RETRY_MAX_TOTAL_SECONDS' => ['tuning', 'vagrant_retry_max_total_seconds']
+  'KUBE_VAGRANT_RETRY_MAX_TOTAL_SECONDS' => ['tuning', 'vagrant_retry_max_total_seconds'],
+  'KUBE_WORKER_PARALLELISM' => ['tuning', 'worker_parallelism'],
+  'KUBE_APT_LOCK_TIMEOUT_SECONDS' => ['tuning', 'apt_lock_timeout_seconds'],
+  'KUBE_APT_LOCK_POLL_SECONDS' => ['tuning', 'apt_lock_poll_seconds']
 }
 
 puts '# Generated from config/cluster.yaml. Do not edit directly.'

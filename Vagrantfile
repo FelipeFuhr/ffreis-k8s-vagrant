@@ -23,7 +23,7 @@ end
 cp_count = Integer(cfg_str.call('KUBE_CP_COUNT', %w[cluster control_planes], '1'))
 worker_count = Integer(cfg_str.call('KUBE_WORKER_COUNT', %w[cluster workers], '2'))
 provider = cfg_str.call('KUBE_PROVIDER', %w[provider name], 'libvirt')
-box = cfg_str.call('KUBE_BOX', %w[vagrant box], 'bento/ubuntu-24.04')
+box = cfg_str.call('KUBE_BOX', %w[vagrant box], 'ffreis/k8s-base-ubuntu24')
 box_version = cfg_str.call('KUBE_BOX_VERSION', %w[vagrant box_version], '')
 network_prefix = cfg_str.call('KUBE_NETWORK_PREFIX', %w[network prefix], '10.30.0')
 api_lb_enabled = cfg_str.call('KUBE_API_LB_ENABLED', %w[network api_lb enabled], 'true') == 'true'
@@ -35,6 +35,8 @@ worker_cpus = Integer(cfg_str.call('KUBE_WORKER_CPUS', %w[resources worker cpus]
 worker_memory = Integer(cfg_str.call('KUBE_WORKER_MEMORY', %w[resources worker memory], '3072'))
 api_lb_cpus = Integer(cfg_str.call('KUBE_API_LB_CPUS', %w[resources api_lb cpus], '1'))
 api_lb_memory = Integer(cfg_str.call('KUBE_API_LB_MEMORY', %w[resources api_lb memory], '1024'))
+libvirt_cpu_mode = cfg_str.call('KUBE_LIBVIRT_CPU_MODE', %w[provider libvirt cpu_mode], 'custom')
+libvirt_cpu_model = cfg_str.call('KUBE_LIBVIRT_CPU_MODEL', %w[provider libvirt cpu_model], 'qemu64')
 ssh_pubkey = cfg_str.call('KUBE_SSH_PUBKEY', %w[ssh public_key], '')
 kube_version = cfg_str.call('KUBE_VERSION', %w[kubernetes version], '1.30.6-1.1')
 kube_channel = cfg_str.call('KUBE_CHANNEL', %w[kubernetes channel], 'v1.30')
@@ -43,6 +45,10 @@ kube_cni_manifest_flannel = cfg_str.call('KUBE_CNI_MANIFEST_FLANNEL', %w[kuberne
 kube_cni_manifest_calico = cfg_str.call('KUBE_CNI_MANIFEST_CALICO', %w[kubernetes cni_manifest_calico], 'https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml')
 kube_cni_manifest_cilium = cfg_str.call('KUBE_CNI_MANIFEST_CILIUM', %w[kubernetes cni_manifest_cilium], 'https://raw.githubusercontent.com/cilium/cilium/v1.16.5/install/kubernetes/quick-install.yaml')
 kube_pause_image = cfg_str.call('KUBE_PAUSE_IMAGE', %w[kubernetes pause_image], 'registry.k8s.io/pause:3.9')
+cp1_init_timeout_seconds = cfg_str.call('KUBE_CP1_INIT_TIMEOUT_SECONDS', %w[tuning cp1_init_timeout_seconds], '1800')
+cp1_prepull_images = cfg_str.call('KUBE_CP1_PREPULL_IMAGES', %w[tuning cp1_prepull_images], 'true')
+cp1_prepull_timeout_seconds = cfg_str.call('KUBE_CP1_PREPULL_TIMEOUT_SECONDS', %w[tuning cp1_prepull_timeout_seconds], '1200')
+cp1_progress_interval_seconds = cfg_str.call('KUBE_CP1_PROGRESS_INTERVAL_SECONDS', %w[tuning cp1_progress_interval_seconds], '20')
 containerd_version = cfg_str.call('KUBE_CONTAINERD_VERSION', %w[packages containerd], '')
 haproxy_version = cfg_str.call('KUBE_HAPROXY_VERSION', %w[packages haproxy], '')
 apt_proxy = cfg_str.call('KUBE_APT_PROXY', %w[apt proxy], '')
@@ -93,6 +99,8 @@ end
 File.write('.vagrant-nodes.json', JSON.pretty_generate(nodes))
 
 Vagrant.configure('2') do |config|
+  # Keep SSH auth deterministic during multi-step provisioning in this lab.
+  config.ssh.insert_key = false
   config.vm.box = box
   config.vm.box_version = box_version unless box_version.empty?
   config.vm.synced_folder '.', '/vagrant', type: 'rsync'
@@ -105,10 +113,16 @@ Vagrant.configure('2') do |config|
       machine.vm.provider provider do |provider_cfg|
         provider_cfg.cpus = node[:cpus]
         provider_cfg.memory = node[:memory]
+        if provider == 'libvirt'
+          provider_cfg.cpu_mode = libvirt_cpu_mode unless libvirt_cpu_mode.empty?
+          if libvirt_cpu_mode == 'custom'
+            provider_cfg.cpu_model = libvirt_cpu_model unless libvirt_cpu_model.empty?
+          end
+        end
       end
 
       if node[:role] == 'api-lb'
-        machine.vm.provision 'shell', path: 'scripts/05_api_lb.sh', env: {
+        machine.vm.provision 'shell', name: 'api-lb', path: 'scripts/05_api_lb.sh', env: {
           'NODE_NAME' => node[:name],
           'CP_COUNT' => cp_count.to_s,
           'NETWORK_PREFIX' => network_prefix,
@@ -118,11 +132,15 @@ Vagrant.configure('2') do |config|
           'KUBE_APT_PROXY' => apt_proxy
         }
       else
-        machine.vm.provision 'shell', path: 'scripts/00_common.sh', env: {
+        machine.vm.provision 'shell', name: 'base-common', path: 'scripts/00_common.sh', env: {
           'NODE_ROLE' => node[:role],
           'NODE_NAME' => node[:name],
           'CP_COUNT' => cp_count.to_s,
           'WORKER_COUNT' => worker_count.to_s,
+          'NETWORK_PREFIX' => network_prefix,
+          'KUBE_API_LB_ENABLED' => api_lb_enabled ? 'true' : 'false',
+          'API_LB_IP' => api_lb_ip,
+          'API_LB_HOSTNAME' => api_lb_hostname,
           'SSH_PUBKEY' => ssh_pubkey,
           'KUBE_VERSION' => kube_version,
           'KUBE_CHANNEL' => kube_channel,
@@ -135,7 +153,7 @@ Vagrant.configure('2') do |config|
       if node[:role] == 'api-lb'
         # api-lb is not a Kubernetes node; it only fronts the API server.
       elsif node[:name] == 'cp1'
-        machine.vm.provision 'shell', path: 'scripts/10_init_control_plane.sh', env: {
+        machine.vm.provision 'shell', name: 'cp-init', path: 'scripts/10_init_control_plane.sh', env: {
           'CP1_IP' => "#{network_prefix}.11",
           'CONTROL_PLANE_ENDPOINT' => control_plane_endpoint,
           'CONTROL_PLANE_ENDPOINT_HOST' => api_lb_enabled ? api_lb_hostname : 'cp1',
@@ -145,12 +163,16 @@ Vagrant.configure('2') do |config|
           'KUBE_CNI_MANIFEST_FLANNEL' => kube_cni_manifest_flannel,
           'KUBE_CNI_MANIFEST_CALICO' => kube_cni_manifest_calico,
           'KUBE_CNI_MANIFEST_CILIUM' => kube_cni_manifest_cilium,
-          'KUBE_VERSION' => kube_version
+          'KUBE_VERSION' => kube_version,
+          'CP1_INIT_TIMEOUT_SECONDS' => cp1_init_timeout_seconds,
+          'CP1_PREPULL_IMAGES' => cp1_prepull_images,
+          'CP1_PREPULL_TIMEOUT_SECONDS' => cp1_prepull_timeout_seconds,
+          'CP1_PROGRESS_INTERVAL_SECONDS' => cp1_progress_interval_seconds
         }
       elsif node[:role] == 'control-plane'
-        machine.vm.provision 'shell', path: 'scripts/20_join_control_plane.sh'
+        machine.vm.provision 'shell', name: 'cp-join', path: 'scripts/20_join_control_plane.sh'
       elsif node[:role] == 'worker'
-        machine.vm.provision 'shell', path: 'scripts/30_join_worker.sh'
+        machine.vm.provision 'shell', name: 'worker-join', path: 'scripts/30_join_worker.sh'
       end
     end
   end
