@@ -53,7 +53,8 @@ wait_for_local_etcd() {
   fi
 
   while true; do
-    if ETCDCTL_API=3 etcdctl --endpoints="http://127.0.0.1:2379" endpoint health >/dev/null 2>&1; then
+    # Local boot check must not require quorum; quorum is validated later by wait_external_etcd_cluster.sh.
+    if systemctl is-active --quiet etcd && curl -fsS --connect-timeout 2 --max-time 3 "http://127.0.0.1:2379/version" >/dev/null 2>&1; then
       return 0
     fi
 
@@ -63,6 +64,8 @@ wait_for_local_etcd() {
 
     if [[ "${waited}" -ge "${timeout}" ]]; then
       echo "Timed out waiting for local etcd readiness (${ETCD_NAME})" >&2
+      systemctl status etcd --no-pager -l || true
+      journalctl -u etcd --no-pager -n 120 || true
       return 1
     fi
 
@@ -101,7 +104,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=notify
+Type=simple
 User=etcd
 Group=etcd
 ExecStart=/usr/local/bin/etcd \
@@ -116,6 +119,7 @@ ExecStart=/usr/local/bin/etcd \
   --initial-cluster-token=k8s-vagrant-external-etcd
 Restart=always
 RestartSec=5
+TimeoutStartSec=120
 LimitNOFILE=40000
 
 [Install]
@@ -130,4 +134,6 @@ rm -rf /var/lib/etcd/default/*
 chown -R etcd:etcd /var/lib/etcd
 systemctl restart etcd
 
-wait_for_local_etcd
+if ! wait_for_local_etcd; then
+  echo "Continuing provisioning for ${ETCD_NAME}; cluster-wide etcd gate will validate quorum before cp boot." >&2
+fi

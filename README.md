@@ -93,3 +93,34 @@ When `KUBE_CP_COUNT=1`, `api-lb` is skipped automatically to reduce CPU/RAM usag
 - `make validate`: checks node readiness, CoreDNS, and scheduling.
 - `make destroy`: tears down VMs and generated state.
 - `make test`: static checks for scripts and `Vagrantfile`.
+
+## Examples
+Control-plane connectivity check (from host):
+```bash
+./examples/check_control_plane_connectivity.sh
+make cp-connectivity
+```
+It validates `cp1..cpN` peer reachability with:
+- ICMP ping between control-plane nodes.
+- TCP connectivity on `6443` between control-plane nodes.
+
+Example script self-test (verifies success/failure exit paths):
+```bash
+make test-examples
+```
+
+Control-plane failover test (takes one control-plane node down and back up):
+```bash
+./examples/test_control_plane_failover.sh
+make cp-failover
+```
+Optional: pass a specific target node (for example `cp2`):
+```bash
+./examples/test_control_plane_failover.sh cp2
+```
+
+Taints/tolerations worker sanity test (temporary taints + hello-world pods + cleanup):
+```bash
+./examples/sanity_taints_tolerations.sh
+make sanity-taints
+```

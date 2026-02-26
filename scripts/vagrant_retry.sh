@@ -4,6 +4,7 @@ set -euo pipefail
 max_attempts="${VAGRANT_RETRY_ATTEMPTS:-10}"
 sleep_seconds="${VAGRANT_RETRY_SLEEP_SECONDS:-6}"
 lock_pattern="another process is already executing an action on the machine"
+fog_warn_literal='[fog][WARNING] Unrecognized arguments: libvirt_ip_command'
 force_unlock_used=0
 
 kill_stale_vagrant_processes() {
@@ -45,7 +46,8 @@ attempt=1
 while true; do
   output_file="$(mktemp)"
 
-  if "$@" > >(tee "${output_file}") 2> >(tee -a "${output_file}" >&2); then
+  if "$@" > >(grep -vF "${fog_warn_literal}" | tee "${output_file}") \
+    2> >(grep -vF "${fog_warn_literal}" | tee -a "${output_file}" >&2); then
     rm -f "${output_file}"
     exit 0
   fi

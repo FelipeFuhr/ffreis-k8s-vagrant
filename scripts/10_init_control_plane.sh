@@ -198,13 +198,65 @@ chmod 600 /vagrant/.cluster/admin.conf
 
 wait_for_apiserver
 
+build_shared_pki_bundle() {
+  local bundle_root
+  local src
+  local rel
+  local required
+  local optional
+
+  bundle_root="$(mktemp -d)"
+  mkdir -p "${bundle_root}/pki"
+
+  required=(
+    "ca.crt"
+    "ca.key"
+    "sa.pub"
+    "sa.key"
+    "front-proxy-ca.crt"
+    "front-proxy-ca.key"
+  )
+
+  optional=(
+    "apiserver-etcd-client.crt"
+    "apiserver-etcd-client.key"
+    "external-etcd-ca.crt"
+    "external-etcd.crt"
+    "external-etcd.key"
+    "etcd/ca.crt"
+    "etcd/ca.key"
+  )
+
+  for rel in "${required[@]}"; do
+    src="/etc/kubernetes/pki/${rel}"
+    if [[ ! -f "${src}" ]]; then
+      echo "Missing required PKI file for control-plane join: ${src}" >&2
+      rm -rf "${bundle_root}"
+      return 1
+    fi
+    mkdir -p "${bundle_root}/pki/$(dirname "${rel}")"
+    cp "${src}" "${bundle_root}/pki/${rel}"
+  done
+
+  for rel in "${optional[@]}"; do
+    src="/etc/kubernetes/pki/${rel}"
+    if [[ -f "${src}" ]]; then
+      mkdir -p "${bundle_root}/pki/$(dirname "${rel}")"
+      cp "${src}" "${bundle_root}/pki/${rel}"
+    fi
+  done
+
+  tar -C "${bundle_root}" -czf /vagrant/.cluster/pki-control-plane.tgz pki
+  rm -rf "${bundle_root}"
+}
+
 JOIN_CMD="$(kubeadm token create --print-join-command)"
 CERT_KEY="$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n 1)"
 printf '%s\n' "${JOIN_CMD}" >/vagrant/.cluster/join.sh
 printf '%s\n' "${CERT_KEY}" >/vagrant/.cluster/certificate-key
 chmod 600 /vagrant/.cluster/join.sh /vagrant/.cluster/certificate-key
-# Share control-plane PKI through the synced folder so cp2+ can join without relying on kubeadm-certs download phase.
-tar -C /etc/kubernetes -czf /vagrant/.cluster/pki-control-plane.tgz pki
+# Share only cluster-wide PKI (not node-specific apiserver certs) for cp2+ join.
+build_shared_pki_bundle
 chmod 600 /vagrant/.cluster/pki-control-plane.tgz
 
 export KUBECONFIG=/etc/kubernetes/admin.conf

@@ -140,12 +140,20 @@ if [[ -z "${ENDPOINT}" || -z "${TOKEN}" || -z "${CA_HASH}" ]]; then
 fi
 
 prepare_control_plane_pki() {
+  local pki_tar
+  pki_tar="/vagrant/.cluster/pki-control-plane.tgz"
+
+  if ! tar -tzf "${pki_tar}" >/dev/null 2>&1; then
+    echo "Invalid control-plane PKI archive: ${pki_tar}" >&2
+    return 125
+  fi
+
   if [[ -f /etc/kubernetes/pki/ca.crt && -f /etc/kubernetes/pki/ca.key ]]; then
     return 0
   fi
 
   mkdir -p /etc/kubernetes
-  tar -C /etc/kubernetes -xzf /vagrant/.cluster/pki-control-plane.tgz
+  tar -C /etc/kubernetes -xzf "${pki_tar}"
 }
 
 join_once() {
@@ -214,6 +222,12 @@ while true; do
 
   if join_once; then
     break
+  fi
+  join_rc="$?"
+
+  if [[ "${join_rc}" -eq 125 ]]; then
+    echo "Control-plane PKI archive is invalid; aborting join retries" >&2
+    exit 1
   fi
 
   if [[ "${attempt}" -ge "${max_attempts}" ]]; then

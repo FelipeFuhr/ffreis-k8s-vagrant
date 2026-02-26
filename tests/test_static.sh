@@ -7,6 +7,12 @@ for script in scripts/*.sh; do
   bash -n "${script}"
 done
 
+if compgen -G "examples/*.sh" >/dev/null; then
+  for script in examples/*.sh; do
+    bash -n "${script}"
+  done
+fi
+
 mkdir -p .cluster
 tmp_env="$(mktemp)"
 cp config/cluster.env.example "${tmp_env}"
