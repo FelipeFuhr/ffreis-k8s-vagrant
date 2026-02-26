@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f /vagrant/scripts/lib/script_init.sh ]]; then
-  # shellcheck disable=SC1091
-  source /vagrant/scripts/lib/script_init.sh
-else
-  # shellcheck disable=SC1091
-  source "${SCRIPT_DIR}/lib/script_init.sh"
-fi
-init_script_lib_dir "${BASH_SOURCE[0]}"
-source_script_libs kubernetes_wait
-
 CP1_IP="${CP1_IP:-10.30.0.11}"
 CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT:-${CP1_IP}:6443}"
 CONTROL_PLANE_ENDPOINT_HOST="${CONTROL_PLANE_ENDPOINT_HOST:-cp1}"
@@ -19,172 +8,175 @@ KUBE_POD_CIDR="${KUBE_POD_CIDR:-10.244.0.0/16}"
 KUBE_SERVICE_CIDR="${KUBE_SERVICE_CIDR:-10.96.0.0/12}"
 KUBE_CNI="${KUBE_CNI:-flannel}"
 KUBE_VERSION="${KUBE_VERSION:-1.30.6-1.1}"
-KUBE_CNI_MANIFEST_FLANNEL="${KUBE_CNI_MANIFEST_FLANNEL:-https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml}"
-KUBE_CNI_MANIFEST_CALICO="${KUBE_CNI_MANIFEST_CALICO:-https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml}"
-KUBE_CNI_MANIFEST_CILIUM="${KUBE_CNI_MANIFEST_CILIUM:-https://raw.githubusercontent.com/cilium/cilium/v1.16.5/install/kubernetes/quick-install.yaml}"
-KUBEADM_LOG="/vagrant/.cluster/cp1-kubeadm.log"
-CP1_WAIT_IP_TIMEOUT_SECONDS="${CP1_WAIT_IP_TIMEOUT_SECONDS:-600}"
-CP1_CIDR_PREFIX="${CP1_IP%.*}"
-CP1_INIT_TIMEOUT_SECONDS="${CP1_INIT_TIMEOUT_SECONDS:-1800}"
-CP1_PROGRESS_FILE="/vagrant/.cluster/cp1-progress"
-CP1_PREPULL_IMAGES="${CP1_PREPULL_IMAGES:-true}"
-CP1_PREPULL_TIMEOUT_SECONDS="${CP1_PREPULL_TIMEOUT_SECONDS:-1200}"
-CP1_PROGRESS_INTERVAL_SECONDS="${CP1_PROGRESS_INTERVAL_SECONDS:-20}"
-
-count_k8s_images() {
-  if command -v crictl >/dev/null 2>&1; then
-    crictl images 2>/dev/null | awk 'NR>1 && $1 ~ /(registry\.k8s\.io|k8s\.gcr\.io|coredns|etcd)/ {c++} END{print c+0}'
-    return 0
-  fi
-  if command -v ctr >/dev/null 2>&1; then
-    ctr -n k8s.io images ls 2>/dev/null | awk 'NR>1 && $1 ~ /(registry\.k8s\.io|k8s\.gcr\.io|coredns|etcd)/ {c++} END{print c+0}'
-    return 0
-  fi
-  echo "unknown"
-}
-
-start_progress_heartbeat() {
-  local phase="$1"
-  local start_ts="$2"
-  (
-    while true; do
-      sleep "${CP1_PROGRESS_INTERVAL_SECONDS}" || exit 0
-      local now elapsed last_line img_count
-      now="$(date +%s)"
-      elapsed="$((now - start_ts))"
-      last_line="$(tail -n 1 "${KUBEADM_LOG}" 2>/dev/null || true)"
-      img_count="$(count_k8s_images)"
-      echo "${phase}: elapsed=${elapsed}s cached_images=${img_count} last='${last_line}'" >>"${CP1_PROGRESS_FILE}"
-    done
-  ) &
-  echo "$!"
-}
-
-stop_progress_heartbeat() {
-  local hb_pid="${1:-}"
-  if [[ -n "${hb_pid}" ]]; then
-    kill "${hb_pid}" >/dev/null 2>&1 || true
-    wait "${hb_pid}" 2>/dev/null || true
-  fi
-}
-
-enforce_cp1_private_ip() {
-  local iface target_cidr addr
-  target_cidr="${CP1_IP}/24"
-  iface="eth1"
-
-  if ! ip link show "${iface}" >/dev/null 2>&1; then
-    iface="$(ip -o link show | awk -F': ' '$2 != "lo" && $2 != "eth0" {print $2; exit}' || true)"
-  fi
-  if [[ -z "${iface}" ]]; then
-    return 0
-  fi
-
-  while IFS= read -r addr; do
-    if [[ "${addr}" == "${target_cidr}" ]]; then
-      continue
-    fi
-    if [[ "${addr}" =~ ^${CP1_CIDR_PREFIX//./\\.}\.[0-9]+/24$ ]]; then
-      ip -4 addr del "${addr}" dev "${iface}" || true
-    fi
-  done < <(ip -o -4 addr show dev "${iface}" | awk '{print $4}')
-
-  if ! ip -o -4 addr show dev "${iface}" | awk '{print $4}' | grep -qx "${target_cidr}"; then
-    ip -4 addr add "${target_cidr}" dev "${iface}" || true
-  fi
-}
+WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
+EXTERNAL_ETCD_ENDPOINTS="${EXTERNAL_ETCD_ENDPOINTS:-}"
 
 mkdir -p /vagrant/.cluster
 rm -f /vagrant/.cluster/failed
-rm -f "${KUBEADM_LOG}"
 
 on_error() {
   local exit_code="$1"
-  local line_no="${2:-unknown}"
-  local failed_cmd="${3:-unknown}"
-  {
-    echo "cp1 bootstrap failed with exit code ${exit_code}"
-    echo "line: ${line_no}"
-    echo "command: ${failed_cmd}"
-    if [[ -s "${KUBEADM_LOG}" ]]; then
-      echo "kubeadm log tail:"
-      tail -n 60 "${KUBEADM_LOG}"
-    fi
-  } >/vagrant/.cluster/failed
-  cp "${KUBEADM_LOG}" /vagrant/.cluster/cp1-kubeadm-error.log 2>/dev/null || true
+  echo "cp1 bootstrap failed with exit code ${exit_code}" >/vagrant/.cluster/failed
   journalctl -u kubelet --no-pager -n 300 >/vagrant/.cluster/cp1-kubelet-error.log || true
-  journalctl -u containerd --no-pager -n 200 >/vagrant/.cluster/cp1-containerd-error.log || true
 }
 
-trap 'on_error $? ${LINENO} "${BASH_COMMAND}"' ERR
+trap 'on_error $?' ERR
 
-run_kubeadm_init() {
-  local rc hb_pid start_ts
-  start_ts="$(date +%s)"
-  echo "starting kubeadm init (timeout=${CP1_INIT_TIMEOUT_SECONDS}s) at $(date -Iseconds)" >"${CP1_PROGRESS_FILE}"
-  hb_pid="$(start_progress_heartbeat "kubeadm-init" "${start_ts}")"
-  timeout --foreground --signal=TERM --kill-after=60 "${CP1_INIT_TIMEOUT_SECONDS}" \
-  kubeadm init \
-    --apiserver-advertise-address "${CP1_IP}" \
-    --apiserver-cert-extra-sans "${CP1_IP}" \
-    --apiserver-cert-extra-sans "${CONTROL_PLANE_ENDPOINT%:*}" \
-    --apiserver-cert-extra-sans "${CONTROL_PLANE_ENDPOINT_HOST}" \
-    --control-plane-endpoint "${CONTROL_PLANE_ENDPOINT}" \
-    --pod-network-cidr "${KUBE_POD_CIDR}" \
-    --service-cidr "${KUBE_SERVICE_CIDR}" \
-    --kubernetes-version "v${KUBE_VERSION%%-*}" \
-    --upload-certs 2>&1 | tee -a "${KUBEADM_LOG}"
-  rc=${PIPESTATUS[0]}
-  stop_progress_heartbeat "${hb_pid}"
-  if [[ "${rc}" -eq 124 ]]; then
-    {
-      echo "kubeadm init timed out after ${CP1_INIT_TIMEOUT_SECONDS}s"
-      echo "See ${KUBEADM_LOG} for partial output."
-    } >>"${CP1_PROGRESS_FILE}"
+log_wait_progress() {
+  local label="$1"
+  local waited="$2"
+  local timeout="$3"
+  local report_interval="$4"
+  local step total_steps
+
+  total_steps=$(((timeout + report_interval - 1) / report_interval))
+  if [[ "${total_steps}" -lt 1 ]]; then
+    total_steps=1
   fi
-  return "${rc}"
+
+  step=$((waited / report_interval + 1))
+  if [[ "${step}" -gt "${total_steps}" ]]; then
+    step="${total_steps}"
+  fi
+
+  echo "${label} (${step}/${total_steps}, ${waited}s/${timeout}s elapsed)" >&2
+}
+
+wait_for_ip() {
+  local waited timeout report_interval
+  waited=0
+  timeout=180
+  report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
+  if [[ "${report_interval}" -lt 3 ]]; then
+    report_interval=3
+  fi
+
+  until ip -o -4 addr show | awk '{print $4}' | grep -q "^${CP1_IP}/"; do
+    if (( waited == 0 || waited % report_interval == 0 )); then
+      log_wait_progress "Waiting for node IP ${CP1_IP}" "${waited}" "${timeout}" "${report_interval}"
+    fi
+
+    if [[ "${waited}" -ge "${timeout}" ]]; then
+      echo "Timed out waiting for ${CP1_IP} on this node" >&2
+      return 1
+    fi
+    sleep 3
+    waited=$((waited + 3))
+  done
+}
+
+wait_for_apiserver() {
+  local waited timeout report_interval
+  waited=0
+  timeout=420
+  report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
+  if [[ "${report_interval}" -lt 5 ]]; then
+    report_interval=5
+  fi
+
+  until kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw=/readyz >/dev/null 2>&1; do
+    if (( waited == 0 || waited % report_interval == 0 )); then
+      log_wait_progress "Waiting for Kubernetes API readiness" "${waited}" "${timeout}" "${report_interval}"
+    fi
+
+    if [[ "${waited}" -ge "${timeout}" ]]; then
+      echo "Timed out waiting for Kubernetes API readiness" >&2
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+wait_for_external_etcd() {
+  local timeout interval report_interval waited endpoint healthy_count total_count
+  timeout=420
+  interval=5
+  report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
+  waited=0
+
+  if [[ "${report_interval}" -lt "${interval}" ]]; then
+    report_interval="${interval}"
+  fi
+
+  while true; do
+    healthy_count=0
+    total_count=0
+    IFS=',' read -r -a endpoints <<<"${EXTERNAL_ETCD_ENDPOINTS}"
+    for endpoint in "${endpoints[@]}"; do
+      total_count=$((total_count + 1))
+      if curl -fsS --connect-timeout 2 --max-time 3 "${endpoint}/health" >/dev/null 2>&1; then
+        healthy_count=$((healthy_count + 1))
+      fi
+    done
+
+    if [[ "${healthy_count}" -eq "${total_count}" && "${total_count}" -gt 0 ]]; then
+      return 0
+    fi
+
+    if (( waited == 0 || waited % report_interval == 0 )); then
+      log_wait_progress "Waiting for external etcd health (${healthy_count}/${total_count} endpoints)" "${waited}" "${timeout}" "${report_interval}"
+    fi
+
+    if [[ "${waited}" -ge "${timeout}" ]]; then
+      echo "Timed out waiting for external etcd endpoints: ${EXTERNAL_ETCD_ENDPOINTS}" >&2
+      return 1
+    fi
+
+    sleep "${interval}"
+    waited=$((waited + interval))
+  done
 }
 
 bootstrap_control_plane() {
-  if [[ "${CP1_PREPULL_IMAGES}" == "true" ]]; then
-    local prepull_rc prepull_hb_pid prepull_start_ts
-    prepull_start_ts="$(date +%s)"
-    echo "pre-pulling control-plane images (timeout=${CP1_PREPULL_TIMEOUT_SECONDS}s) at $(date -Iseconds)" >"${CP1_PROGRESS_FILE}"
-    prepull_hb_pid="$(start_progress_heartbeat "prepull-images" "${prepull_start_ts}")"
-    timeout --foreground --signal=TERM --kill-after=30 "${CP1_PREPULL_TIMEOUT_SECONDS}" \
-      kubeadm config images pull --kubernetes-version "v${KUBE_VERSION%%-*}" 2>&1 | tee -a "${KUBEADM_LOG}"
-    prepull_rc=${PIPESTATUS[0]}
-    stop_progress_heartbeat "${prepull_hb_pid}"
-    if [[ "${prepull_rc}" -ne 0 ]]; then
-      echo "image pre-pull failed or timed out (rc=${prepull_rc}); continuing with kubeadm init" >>"${CP1_PROGRESS_FILE}"
-    else
-      echo "image pre-pull complete at $(date -Iseconds)" >>"${CP1_PROGRESS_FILE}"
-    fi
+  local endpoint_host
+  endpoint_host="${CONTROL_PLANE_ENDPOINT%:*}"
+  if [[ -z "${EXTERNAL_ETCD_ENDPOINTS}" ]]; then
+    echo "EXTERNAL_ETCD_ENDPOINTS is required" >&2
+    return 1
   fi
-  run_kubeadm_init
+
+  wait_for_external_etcd
+
+  cat >/tmp/kubeadm-init.yaml <<CFG
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: ${CP1_IP}
+  bindPort: 6443
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: v${KUBE_VERSION%%-*}
+controlPlaneEndpoint: ${CONTROL_PLANE_ENDPOINT}
+networking:
+  podSubnet: ${KUBE_POD_CIDR}
+  serviceSubnet: ${KUBE_SERVICE_CIDR}
+apiServer:
+  certSANs:
+  - ${CP1_IP}
+  - ${endpoint_host}
+  - ${CONTROL_PLANE_ENDPOINT_HOST}
+etcd:
+  external:
+    endpoints:
+CFG
+
+  IFS=',' read -r -a endpoints <<<"${EXTERNAL_ETCD_ENDPOINTS}"
+  for endpoint in "${endpoints[@]}"; do
+    printf '    - %s\n' "${endpoint}" >>/tmp/kubeadm-init.yaml
+  done
+
+  kubeadm init --config /tmp/kubeadm-init.yaml --upload-certs
 }
 
-enforce_cp1_private_ip
-if ! wait_for_ip "${CP1_IP}" "${CP1_WAIT_IP_TIMEOUT_SECONDS}"; then
-  {
-    echo "cp1 bootstrap network precheck failed"
-    echo "expected control-plane IP: ${CP1_IP}"
-    echo "timeout_seconds: ${CP1_WAIT_IP_TIMEOUT_SECONDS}"
-    echo "observed_ipv4:"
-    ip -o -4 addr show || true
-  } >/vagrant/.cluster/failed
-  ip -o -4 addr show >/vagrant/.cluster/cp1-ipv4.log 2>/dev/null || true
-  ip route show >/vagrant/.cluster/cp1-routes.log 2>/dev/null || true
-  exit 1
-fi
+wait_for_ip
 
 if [[ -f /etc/kubernetes/admin.conf ]]; then
   echo "Control plane already initialized, refreshing join artifacts"
-  echo "control-plane already initialized at $(date -Iseconds)" >"${CP1_PROGRESS_FILE}"
 else
   if ! bootstrap_control_plane; then
     echo "First kubeadm init attempt failed, collecting logs and retrying once"
-    echo "first kubeadm init attempt failed, retrying at $(date -Iseconds)" >"${CP1_PROGRESS_FILE}"
     journalctl -u kubelet --no-pager -n 200 >/vagrant/.cluster/cp1-kubelet-init.log || true
     kubeadm reset -f || true
     systemctl restart containerd kubelet || true
@@ -204,25 +196,28 @@ chmod 600 /home/vagrant/.kube/config
 cp /etc/kubernetes/admin.conf /vagrant/.cluster/admin.conf
 chmod 600 /vagrant/.cluster/admin.conf
 
-wait_for_apiserver /etc/kubernetes/admin.conf 420
+wait_for_apiserver
 
 JOIN_CMD="$(kubeadm token create --print-join-command)"
 CERT_KEY="$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n 1)"
 printf '%s\n' "${JOIN_CMD}" >/vagrant/.cluster/join.sh
 printf '%s\n' "${CERT_KEY}" >/vagrant/.cluster/certificate-key
 chmod 600 /vagrant/.cluster/join.sh /vagrant/.cluster/certificate-key
+# Share control-plane PKI through the synced folder so cp2+ can join without relying on kubeadm-certs download phase.
+tar -C /etc/kubernetes -czf /vagrant/.cluster/pki-control-plane.tgz pki
+chmod 600 /vagrant/.cluster/pki-control-plane.tgz
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
 case "${KUBE_CNI}" in
   flannel)
-    kubectl apply -f "${KUBE_CNI_MANIFEST_FLANNEL}"
+    kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
     ;;
   calico)
-    kubectl apply -f "${KUBE_CNI_MANIFEST_CALICO}"
+    kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml
     ;;
   cilium)
-    kubectl apply -f "${KUBE_CNI_MANIFEST_CILIUM}"
+    kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.16.5/install/kubernetes/quick-install.yaml
     ;;
   *)
     echo "Unsupported KUBE_CNI=${KUBE_CNI}. Supported: flannel, calico, cilium" >&2
@@ -230,9 +225,5 @@ case "${KUBE_CNI}" in
     ;;
 esac
 
-test -s /vagrant/.cluster/join.sh
-test -s /vagrant/.cluster/certificate-key
-test -s /vagrant/.cluster/admin.conf
 touch /vagrant/.cluster/ready
-echo "cp1 bootstrap complete at $(date -Iseconds)" >"${CP1_PROGRESS_FILE}"
 trap - ERR

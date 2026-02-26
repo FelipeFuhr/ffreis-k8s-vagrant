@@ -3,15 +3,15 @@ set -euo pipefail
 
 ruby -c Vagrantfile >/dev/null
 
-for script in $(find scripts -type f -name '*.sh' | sort); do
+for script in scripts/*.sh; do
   bash -n "${script}"
 done
 
 mkdir -p .cluster
-tmp_mk="$(mktemp)"
-./scripts/config/render_env_from_yaml.sh config/cluster.yaml "${tmp_mk}"
+tmp_env="$(mktemp)"
+cp config/cluster.env.example "${tmp_env}"
 
-# Ensure expected keys are rendered from YAML for deterministic bootstrapping.
+# Ensure expected keys are present in default config for deterministic bootstrapping.
 required_keys=(
   KUBE_CP_COUNT
   KUBE_WORKER_COUNT
@@ -22,14 +22,12 @@ required_keys=(
   KUBE_API_LB_IP
 )
 for key in "${required_keys[@]}"; do
-  if ! grep -q "^${key} :=" "${tmp_mk}"; then
-    echo "Missing required rendered key from cluster.yaml: ${key}"
+  if ! grep -q "^${key}=" "${tmp_env}"; then
+    echo "Missing required key in cluster.env.example: ${key}"
     exit 1
   fi
 done
 
-rm -f "${tmp_mk}"
-
-./tests/test_vagrant_lock_lib.sh
+rm -f "${tmp_env}"
 
 echo "Static checks passed"

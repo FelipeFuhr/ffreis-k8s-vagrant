@@ -1,103 +1,174 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f /vagrant/scripts/lib/script_init.sh ]]; then
-  # shellcheck disable=SC1091
-  source /vagrant/scripts/lib/script_init.sh
-else
-  # shellcheck disable=SC1091
-  source "${SCRIPT_DIR}/lib/script_init.sh"
-fi
-init_script_lib_dir "${BASH_SOURCE[0]}"
-source_script_libs cluster_state retry etcd_ops join_retry error
-setup_error_trap "$(basename "${BASH_SOURCE[0]}")"
-
-MAX_WAIT_SECONDS="${KUBE_JOIN_MAX_WAIT_SECONDS:-${MAX_WAIT_SECONDS:-900}}"
-SLEEP_SECONDS="${KUBE_JOIN_POLL_SECONDS:-${SLEEP_SECONDS:-5}}"
-CP_JOIN_RETRY_ATTEMPTS="${KUBE_CP_JOIN_RETRY_ATTEMPTS:-5}"
-CP_JOIN_RETRY_SLEEP_SECONDS="${KUBE_CP_JOIN_RETRY_SLEEP_SECONDS:-15}"
-CP_JOIN_RETRY_BACKOFF_FACTOR="${KUBE_CP_JOIN_RETRY_BACKOFF_FACTOR:-2}"
-CP_JOIN_RETRY_MAX_SLEEP_SECONDS="${KUBE_CP_JOIN_RETRY_MAX_SLEEP_SECONDS:-120}"
-CP_JOIN_RETRY_MAX_TOTAL_SECONDS="${KUBE_CP_JOIN_RETRY_MAX_TOTAL_SECONDS:-1200}"
-KUBECONFIG_PATH="/vagrant/.cluster/admin.conf"
+MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-900}"
+SLEEP_SECONDS="${SLEEP_SECONDS:-5}"
+CP_JOIN_MAX_ATTEMPTS="${CP_JOIN_MAX_ATTEMPTS:-8}"
+CP_JOIN_BASE_BACKOFF_SECONDS="${CP_JOIN_BASE_BACKOFF_SECONDS:-60}"
+CP_JOIN_MAX_BACKOFF_SECONDS="${CP_JOIN_MAX_BACKOFF_SECONDS:-240}"
+WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
+EXTERNAL_ETCD_ENDPOINTS="${EXTERNAL_ETCD_ENDPOINTS:-}"
 node_name="$(hostname -s)"
 
-if is_api_lb_node; then
+if [[ "${node_name}" == "api-lb" ]]; then
   echo "api-lb is not a Kubernetes control-plane node, skipping join"
   exit 0
 fi
+
+wait_for_artifact() {
+  local path="$1"
+  local waited report_interval total_steps step
+  waited=0
+  report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
+  if [[ "${report_interval}" -lt "${SLEEP_SECONDS}" ]]; then
+    report_interval="${SLEEP_SECONDS}"
+  fi
+  total_steps=$(((MAX_WAIT_SECONDS + report_interval - 1) / report_interval))
+  if [[ "${total_steps}" -lt 1 ]]; then
+    total_steps=1
+  fi
+
+  while [[ ! -f "${path}" ]]; do
+    if (( waited == 0 || waited % report_interval == 0 )); then
+      step=$((waited / report_interval + 1))
+      if [[ "${step}" -gt "${total_steps}" ]]; then
+        step="${total_steps}"
+      fi
+      echo "Waiting for ${path} (${step}/${total_steps}, ${waited}s/${MAX_WAIT_SECONDS}s elapsed)" >&2
+    fi
+
+    if [[ -f /vagrant/.cluster/failed ]]; then
+      echo "Control-plane bootstrap failed: $(cat /vagrant/.cluster/failed)" >&2
+      echo "See host logs in .cluster/cp1-kubelet-error.log or .cluster/cp1-kubelet-init.log" >&2
+      return 1
+    fi
+
+    if [[ "${waited}" -ge "${MAX_WAIT_SECONDS}" ]]; then
+      echo "Timed out waiting for ${path}" >&2
+      return 1
+    fi
+
+    sleep "${SLEEP_SECONDS}"
+    waited=$((waited + SLEEP_SECONDS))
+  done
+}
+
+log_wait_progress() {
+  local label="$1"
+  local waited="$2"
+  local timeout="$3"
+  local report_interval="$4"
+  local step total_steps
+
+  total_steps=$(((timeout + report_interval - 1) / report_interval))
+  if [[ "${total_steps}" -lt 1 ]]; then
+    total_steps=1
+  fi
+
+  step=$((waited / report_interval + 1))
+  if [[ "${step}" -gt "${total_steps}" ]]; then
+    step="${total_steps}"
+  fi
+
+  echo "${label} (${step}/${total_steps}, ${waited}s/${timeout}s elapsed)" >&2
+}
+
+wait_for_external_etcd() {
+  local timeout interval report_interval waited endpoint healthy_count total_count
+  timeout=420
+  interval=5
+  report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
+  waited=0
+
+  if [[ -z "${EXTERNAL_ETCD_ENDPOINTS}" ]]; then
+    echo "EXTERNAL_ETCD_ENDPOINTS is required for control-plane join" >&2
+    return 1
+  fi
+
+  if [[ "${report_interval}" -lt "${interval}" ]]; then
+    report_interval="${interval}"
+  fi
+
+  while true; do
+    healthy_count=0
+    total_count=0
+    IFS=',' read -r -a endpoints <<<"${EXTERNAL_ETCD_ENDPOINTS}"
+    for endpoint in "${endpoints[@]}"; do
+      endpoint="${endpoint%/}"
+      total_count=$((total_count + 1))
+      if curl -fsS --connect-timeout 2 --max-time 3 "${endpoint}/health" >/dev/null 2>&1; then
+        healthy_count=$((healthy_count + 1))
+      fi
+    done
+
+    if [[ "${healthy_count}" -eq "${total_count}" && "${total_count}" -gt 0 ]]; then
+      return 0
+    fi
+
+    if (( waited == 0 || waited % report_interval == 0 )); then
+      log_wait_progress "Waiting for external etcd health (${healthy_count}/${total_count} endpoints)" "${waited}" "${timeout}" "${report_interval}"
+    fi
+
+    if [[ "${waited}" -ge "${timeout}" ]]; then
+      echo "Timed out waiting for external etcd endpoints: ${EXTERNAL_ETCD_ENDPOINTS}" >&2
+      return 1
+    fi
+
+    sleep "${interval}"
+    waited=$((waited + interval))
+  done
+}
 
 if [[ -f /etc/kubernetes/kubelet.conf ]]; then
   echo "Node already joined, skipping"
   exit 0
 fi
 
-prejoin_peer_connectivity_check() {
-  local current_idx peer_idx peer_name peer_ip
-  if [[ ! "${node_name}" =~ ^cp([0-9]+)$ ]]; then
-    return 0
-  fi
-  current_idx="${BASH_REMATCH[1]}"
-  if [[ "${current_idx}" -le 1 ]]; then
-    return 0
-  fi
+wait_for_artifact /vagrant/.cluster/ready
+wait_for_artifact /vagrant/.cluster/join.sh
+wait_for_artifact /vagrant/.cluster/certificate-key
+wait_for_artifact /vagrant/.cluster/pki-control-plane.tgz
 
-  for peer_idx in $(seq 1 $((current_idx - 1))); do
-    peer_name="cp${peer_idx}"
-    peer_ip="$(getent hosts "${peer_name}" | awk '{print $1; exit}' || true)"
-    if [[ -z "${peer_ip}" ]]; then
-      echo "Pre-join network check failed: cannot resolve ${peer_name}" >&2
-      echo "Ensure /etc/hosts contains cluster node mappings." >&2
-      return 1
-    fi
+JOIN_LINE="$(tr -d '\r' </vagrant/.cluster/join.sh | head -n1)"
+ENDPOINT="$(awk '{print $3}' <<<"${JOIN_LINE}")"
+TOKEN="$(awk '{for(i=1;i<=NF;i++) if($i=="--token") {print $(i+1); exit}}' <<<"${JOIN_LINE}")"
+CA_HASH="$(awk '{for(i=1;i<=NF;i++) if($i=="--discovery-token-ca-cert-hash") {print $(i+1); exit}}' <<<"${JOIN_LINE}")"
 
-    # etcd peer traffic must be reachable before attempting join.
-    if ! retry 6 timeout 5 bash -c "echo > /dev/tcp/${peer_ip}/2380"; then
-      echo "Pre-join network check failed: cannot reach ${peer_name} (${peer_ip}):2380" >&2
-      return 1
-    fi
-  done
-}
-
-wait_for_artifact /vagrant/.cluster/ready "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
-wait_for_artifact /vagrant/.cluster/join.sh "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
-wait_for_artifact /vagrant/.cluster/certificate-key "${MAX_WAIT_SECONDS}" "${SLEEP_SECONDS}"
-prejoin_peer_connectivity_check
-
-load_join_values /vagrant/.cluster/join.sh
-ENDPOINT="${JOIN_ENDPOINT}"
-TOKEN="${JOIN_TOKEN}"
-CA_HASH="${JOIN_CA_HASH}"
-CERT_KEY="$(tr -d '\r' </vagrant/.cluster/certificate-key | head -n1)"
-
-if [[ -z "${ENDPOINT}" || -z "${TOKEN}" || -z "${CA_HASH}" || -z "${CERT_KEY}" ]]; then
+if [[ -z "${ENDPOINT}" || -z "${TOKEN}" || -z "${CA_HASH}" ]]; then
   echo "Invalid join/certificate data in /vagrant/.cluster" >&2
   exit 1
 fi
 
+prepare_control_plane_pki() {
+  if [[ -f /etc/kubernetes/pki/ca.crt && -f /etc/kubernetes/pki/ca.key ]]; then
+    return 0
+  fi
+
+  mkdir -p /etc/kubernetes
+  tar -C /etc/kubernetes -xzf /vagrant/.cluster/pki-control-plane.tgz
+}
+
 join_once() {
-  local warn_show_limit warn_report_interval warn_report_every
-  warn_show_limit="${KUBE_CP_JOIN_WARN_SHOW_LIMIT:-${ETCD_WARN_SHOW_LIMIT:-2}}"
-  warn_report_interval="${KUBE_CP_JOIN_WARN_REPORT_INTERVAL_SECONDS:-${ETCD_WARN_REPORT_INTERVAL_SECONDS:-120}}"
-  warn_report_every="${KUBE_CP_JOIN_WARN_REPORT_EVERY:-250}"
+  local warn_show_limit warn_report_interval
+  warn_show_limit="${ETCD_WARN_SHOW_LIMIT:-1}"
+  warn_report_interval="${ETCD_WARN_REPORT_INTERVAL_SECONDS:-90}"
+
+  prepare_control_plane_pki
 
   kubeadm join "${ENDPOINT}" \
     --token "${TOKEN}" \
     --discovery-token-ca-cert-hash "${CA_HASH}" \
     --control-plane \
-    --certificate-key "${CERT_KEY}" 2>&1 \
-    | awk -v limit="${warn_show_limit}" -v interval="${warn_report_interval}" -v report_every="${warn_report_every}" '
+    --skip-phases=control-plane-prepare/download-certs 2>&1 \
+    | awk -v limit="${warn_show_limit}" -v interval="${warn_report_interval}" '
       BEGIN {
         shown = 0
         suppressed = 0
         last_report = systime()
-        suppression_noted = 0
-        pattern_sync = "can only promote a learner member which is in sync with leader"
-        pattern_too_many = "too many learner members in cluster"
+        pattern = "can only promote a learner member which is in sync with leader"
       }
       {
-        if (index($0, pattern_sync) > 0 || index($0, pattern_too_many) > 0) {
+        if (index($0, pattern) > 0) {
           if (shown < limit) {
             print
             shown++
@@ -105,14 +176,9 @@ join_once() {
           }
 
           suppressed++
-          if (suppression_noted == 0) {
-            print "[cp-join] throttling repeated etcd learner warnings..."
-            fflush()
-            suppression_noted = 1
-          }
           now = systime()
-          if ((suppressed % report_every) == 0 || (now - last_report) >= interval) {
-            printf("[cp-join] etcd learner warnings suppressed: %d\n", suppressed)
+          if ((now - last_report) >= interval) {
+            printf("[cp-join] throttled etcd learner warnings: %d suppressed so far\n", suppressed)
             fflush()
             last_report = now
           }
@@ -129,28 +195,41 @@ join_once() {
     '
 }
 
-on_join_failure() {
-  local attempt="$1"
-  local elapsed_seconds="$2"
-  local retry_sleep_seconds
+cleanup_stale_node() {
+  local kubeconfig_path="/vagrant/.cluster/admin.conf"
+  if [[ ! -f "${kubeconfig_path}" ]]; then
+    return 0
+  fi
 
-  echo "Control-plane join attempt ${attempt} failed; resetting node and retrying" >&2
-  cleanup_stale_node_with_retries "${KUBECONFIG_PATH}" "${node_name}" 5
-  cleanup_stale_etcd_member_by_node "${KUBECONFIG_PATH}" "${node_name}"
-  cleanup_stale_etcd_learners "${KUBECONFIG_PATH}"
-  kubeadm reset -f || true
-  systemctl restart containerd kubelet || true
-  retry_sleep_seconds="$(compute_backoff_sleep_seconds "${attempt}" "${CP_JOIN_RETRY_SLEEP_SECONDS}" "${CP_JOIN_RETRY_BACKOFF_FACTOR}" "${CP_JOIN_RETRY_MAX_SLEEP_SECONDS}")"
-  echo "Control-plane join backoff: sleeping ${retry_sleep_seconds}s (attempt ${attempt}, elapsed ${elapsed_seconds}s)" >&2
+  if kubectl --kubeconfig "${kubeconfig_path}" get node "${node_name}" >/dev/null 2>&1; then
+    echo "Deleting stale node object '${node_name}' before retry" >&2
+    kubectl --request-timeout=30s --kubeconfig "${kubeconfig_path}" delete node "${node_name}" --wait=true >/dev/null 2>&1 || true
+  fi
 }
 
-if ! run_with_backoff_retry_loop \
-  "${CP_JOIN_RETRY_ATTEMPTS}" \
-  "${CP_JOIN_RETRY_SLEEP_SECONDS}" \
-  "${CP_JOIN_RETRY_BACKOFF_FACTOR}" \
-  "${CP_JOIN_RETRY_MAX_SLEEP_SECONDS}" \
-  "${CP_JOIN_RETRY_MAX_TOTAL_SECONDS}" \
-  join_once \
-  on_join_failure; then
-  exit 1
-fi
+attempt=1
+max_attempts="${CP_JOIN_MAX_ATTEMPTS}"
+while true; do
+  wait_for_external_etcd
+
+  if join_once; then
+    break
+  fi
+
+  if [[ "${attempt}" -ge "${max_attempts}" ]]; then
+    echo "kubeadm control-plane join failed after ${max_attempts} attempts" >&2
+    exit 1
+  fi
+
+  echo "Control-plane join attempt ${attempt} failed; resetting node and retrying" >&2
+  cleanup_stale_node
+  kubeadm reset -f || true
+  systemctl restart containerd kubelet || true
+  backoff_seconds=$((CP_JOIN_BASE_BACKOFF_SECONDS * attempt))
+  if [[ "${backoff_seconds}" -gt "${CP_JOIN_MAX_BACKOFF_SECONDS}" ]]; then
+    backoff_seconds="${CP_JOIN_MAX_BACKOFF_SECONDS}"
+  fi
+  echo "Waiting ${backoff_seconds}s before next control-plane join attempt (retry $((attempt + 1))/${max_attempts})" >&2
+  sleep "${backoff_seconds}"
+  attempt=$((attempt + 1))
+done
