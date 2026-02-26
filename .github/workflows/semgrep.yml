@@ -1,0 +1,63 @@
+name: Security Scan (Semgrep)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Vagrantfile"
+      - "Makefile"
+      - "config/**"
+      - "scripts/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/semgrep.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Vagrantfile"
+      - "Makefile"
+      - "config/**"
+      - "scripts/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/semgrep.yml"
+  schedule:
+    - cron: "0 11 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install semgrep
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install semgrep
+
+      - name: Run semgrep (SARIF)
+        run: |
+          set -euo pipefail
+          mkdir -p semgrep-results
+          semgrep scan --config auto --sarif --output semgrep-results/semgrep.sarif || true
+
+      - name: Upload Semgrep SARIF
+        if: ${{ hashFiles('semgrep-results/semgrep.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep-results/semgrep.sarif
+          category: semgrep

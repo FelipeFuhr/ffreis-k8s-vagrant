@@ -1,0 +1,81 @@
+name: Security Scan (Snyk)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Vagrantfile"
+      - "Makefile"
+      - "config/**"
+      - "scripts/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/snyk.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Vagrantfile"
+      - "Makefile"
+      - "config/**"
+      - "scripts/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/snyk.yml"
+  schedule:
+    - cron: "0 10 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snyk:
+    if: ${{ secrets.SNYK_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js (for Snyk CLI)
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Snyk CLI
+        run: |
+          set -euo pipefail
+          npm install -g snyk
+          snyk --version
+
+      - name: Run Snyk Code
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p snyk-results
+          snyk code test --sarif-file-output=snyk-results/code.sarif || true
+
+      - name: Run Snyk IaC
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set -euo pipefail
+          snyk iac test . --sarif-file-output=snyk-results/iac.sarif || true
+
+      - name: Upload Snyk Code SARIF
+        if: ${{ hashFiles('snyk-results/code.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-results/code.sarif
+          category: snyk-code
+
+      - name: Upload Snyk IaC SARIF
+        if: ${{ hashFiles('snyk-results/iac.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-results/iac.sarif
+          category: snyk-iac

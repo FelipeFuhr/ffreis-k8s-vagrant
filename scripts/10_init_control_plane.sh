@@ -167,7 +167,8 @@ CFG
     printf '    - %s\n' "${endpoint}" >>/tmp/kubeadm-init.yaml
   done
 
-  kubeadm init --config /tmp/kubeadm-init.yaml --upload-certs
+  # Upload certs in a dedicated step later after ensuring a fresh bootstrap token exists.
+  kubeadm init --config /tmp/kubeadm-init.yaml
 }
 
 wait_for_ip

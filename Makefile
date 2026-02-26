@@ -123,6 +123,8 @@ validate:
 destroy:
 	# Clear stale local lock files before actions.
 	find .vagrant -type f -name '*.lock' -delete >/dev/null 2>&1 || true
+	# Prune global Vagrant index and destroy any stale machine IDs for this workspace.
+	./scripts/vagrant_global_cleanup.sh .
 	# Best-effort Vagrant destroy for the LB and all configured machines.
 	$(VAGRANT_RUN) destroy -f api-lb || true
 	$(VAGRANT_RUN) destroy -f || true

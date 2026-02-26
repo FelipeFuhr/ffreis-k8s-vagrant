@@ -6,7 +6,10 @@ KUBE_ETCD_COUNT="${KUBE_ETCD_COUNT:-3}"
 MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-420}"
 SLEEP_SECONDS="${SLEEP_SECONDS:-5}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
-VAGRANT_BIN="${VAGRANT_BIN:-vagrant}"
+
+vagrant_cmd() {
+  ./scripts/vagrant_retry.sh vagrant "$@"
+}
 
 build_etcd_endpoints() {
   local endpoints="" i
@@ -49,15 +52,15 @@ while true; do
   unique_ids=0
   leader_count=0
 
-  if ${VAGRANT_BIN} ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint health >/dev/null 2>&1"; then
+  if vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint health >/dev/null 2>&1"; then
     health_ok=1
   fi
 
-  member_count_raw="$(${VAGRANT_BIN} ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list | sed '/^$/d' | wc -l" 2>/dev/null || true)"
+  member_count_raw="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list | sed '/^$/d' | wc -l" 2>/dev/null || true)"
   member_count="$(tr -dc '0-9' <<<"${member_count_raw}")"
   [[ -n "${member_count}" ]] || member_count=0
 
-  status_lines="$(${VAGRANT_BIN} ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w table | sed -n '/2379/p'" 2>/dev/null || true)"
+  status_lines="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w table | sed -n '/2379/p'" 2>/dev/null || true)"
   unique_ids="$(awk -F'|' '{id=$3; gsub(/ /,"",id); if(id!="") ids[id]=1} END{print (length(ids)+0)}' <<<"${status_lines}" 2>/dev/null || true)"
   leader_count="$(awk -F'|' '{leader=$6; gsub(/ /,"",leader); if(leader=="true") c++} END{print (c+0)}' <<<"${status_lines}" 2>/dev/null || true)"
   [[ -n "${unique_ids}" ]] || unique_ids=0

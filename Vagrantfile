@@ -21,6 +21,8 @@ api_lb_memory = Integer(ENV.fetch('KUBE_API_LB_MEMORY', '512'))
 etcd_cpus = Integer(ENV.fetch('KUBE_ETCD_CPUS', '1'))
 etcd_memory = Integer(ENV.fetch('KUBE_ETCD_MEMORY', '1024'))
 etcd_version = ENV.fetch('KUBE_ETCD_VERSION', '3.5.15')
+etcd_reinit_on_provision = ENV.fetch('ETCD_REINIT_ON_PROVISION', 'true')
+etcd_auto_recover_on_failure = ENV.fetch('ETCD_AUTO_RECOVER_ON_FAILURE', 'true')
 ssh_pubkey = ENV.fetch('KUBE_SSH_PUBKEY', '')
 wait_report_interval_seconds = ENV.fetch('WAIT_REPORT_INTERVAL_SECONDS', '60')
 cp_join_max_attempts = ENV.fetch('CP_JOIN_MAX_ATTEMPTS', '8')
@@ -133,6 +135,8 @@ Vagrant.configure('2') do |config|
           'ETCD_IP' => node[:ip],
           'ETCD_INITIAL_CLUSTER' => external_etcd_initial_cluster,
           'ETCD_VERSION' => etcd_version,
+          'ETCD_REINIT_ON_PROVISION' => etcd_reinit_on_provision,
+          'ETCD_AUTO_RECOVER_ON_FAILURE' => etcd_auto_recover_on_failure,
           'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds
         }
       elsif node[:name] == 'cp1'

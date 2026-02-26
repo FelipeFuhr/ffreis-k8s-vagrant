@@ -6,6 +6,8 @@ ETCD_IP="${ETCD_IP:?ETCD_IP is required}"
 ETCD_INITIAL_CLUSTER="${ETCD_INITIAL_CLUSTER:?ETCD_INITIAL_CLUSTER is required}"
 ETCD_VERSION="${ETCD_VERSION:-3.5.15}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
+ETCD_REINIT_ON_PROVISION="${ETCD_REINIT_ON_PROVISION:-false}"
+ETCD_AUTO_RECOVER_ON_FAILURE="${ETCD_AUTO_RECOVER_ON_FAILURE:-true}"
 
 retry_download() {
   local url="$1"
@@ -43,8 +45,8 @@ log_wait_progress() {
 
 wait_for_local_etcd() {
   local timeout interval report_interval waited
-  timeout=180
-  interval=5
+  timeout="${ETCD_LOCAL_START_TIMEOUT_SECONDS:-60}"
+  interval=3
   report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
   waited=0
 
@@ -53,8 +55,9 @@ wait_for_local_etcd() {
   fi
 
   while true; do
-    # Local boot check must not require quorum; quorum is validated later by wait_external_etcd_cluster.sh.
-    if systemctl is-active --quiet etcd && curl -fsS --connect-timeout 2 --max-time 3 "http://127.0.0.1:2379/version" >/dev/null 2>&1; then
+    # Per-node readiness must not depend on quorum. Full quorum is validated
+    # later by scripts/wait_external_etcd_cluster.sh after all etcd nodes are up.
+    if systemctl is-active --quiet etcd && ss -lnt '( sport = :2379 )' | grep -q ':2379'; then
       return 0
     fi
 
@@ -96,7 +99,19 @@ fi
 
 install -d -m 0700 -o etcd -g etcd /var/lib/etcd/default
 
-cat >/etc/systemd/system/etcd.service <<CFG
+reset_etcd_data_dir() {
+  systemctl stop etcd >/dev/null 2>&1 || true
+  rm -rf /var/lib/etcd/default
+  install -d -m 0700 -o etcd -g etcd /var/lib/etcd/default
+}
+
+recent_etcd_bootstrap_error() {
+  journalctl -u etcd --no-pager -n 400 2>/dev/null | grep -E -q "has already been bootstrapped|server has been already initialized"
+}
+
+render_etcd_unit() {
+  local cluster_state="$1"
+  cat >/etc/systemd/system/etcd.service <<CFG
 [Unit]
 Description=etcd key-value store
 Documentation=https://etcd.io/docs/
@@ -115,7 +130,7 @@ ExecStart=/usr/local/bin/etcd \
   --listen-peer-urls=http://${ETCD_IP}:2380 \
   --initial-advertise-peer-urls=http://${ETCD_IP}:2380 \
   --initial-cluster=${ETCD_INITIAL_CLUSTER} \
-  --initial-cluster-state=new \
+  --initial-cluster-state=${cluster_state} \
   --initial-cluster-token=k8s-vagrant-external-etcd
 Restart=always
 RestartSec=5
@@ -125,15 +140,52 @@ LimitNOFILE=40000
 [Install]
 WantedBy=multi-user.target
 CFG
+}
 
+if [[ "${ETCD_REINIT_ON_PROVISION}" == "true" ]]; then
+  reset_etcd_data_dir
+fi
+
+cluster_state="new"
+if [[ -d /var/lib/etcd/default/member ]]; then
+  cluster_state="existing"
+fi
+
+render_etcd_unit "${cluster_state}"
 systemctl daemon-reload
 systemctl enable etcd
 systemctl stop etcd >/dev/null 2>&1 || true
-# Keep provisioning deterministic: wipe stale local etcd state before (re)bootstrap.
-rm -rf /var/lib/etcd/default/*
 chown -R etcd:etcd /var/lib/etcd
 systemctl restart etcd
 
-if ! wait_for_local_etcd; then
+etcd_ready=0
+if wait_for_local_etcd; then
+  etcd_ready=1
+fi
+
+if [[ "${etcd_ready}" -eq 0 ]]; then
+  if [[ "${ETCD_AUTO_RECOVER_ON_FAILURE}" == "true" ]]; then
+    echo "Local etcd failed first start on ${ETCD_NAME}; attempting one-time recovery restart" >&2
+    if [[ -d /var/lib/etcd/default/member ]] || recent_etcd_bootstrap_error; then
+      echo "Detected existing member state on ${ETCD_NAME}; retrying with initial-cluster-state=existing" >&2
+      cluster_state="existing"
+      render_etcd_unit "${cluster_state}"
+      systemctl daemon-reload
+      systemctl restart etcd || true
+    else
+      echo "No usable member state detected on ${ETCD_NAME}; reinitializing local etcd data dir" >&2
+      reset_etcd_data_dir
+      cluster_state="new"
+      render_etcd_unit "${cluster_state}"
+      systemctl daemon-reload
+      systemctl restart etcd || true
+    fi
+    if wait_for_local_etcd; then
+      etcd_ready=1
+    fi
+  fi
+fi
+
+if [[ "${etcd_ready}" -eq 0 ]]; then
   echo "Continuing provisioning for ${ETCD_NAME}; cluster-wide etcd gate will validate quorum before cp boot." >&2
 fi
