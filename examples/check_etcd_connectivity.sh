@@ -98,7 +98,7 @@ else
 fi
 
 echo "Checking etcd peer network reachability (tcp/2379 and tcp/2380)"
-while read -r src_name src_ip; do
+while read -r src_name _; do
   while read -r dst_name dst_ip; do
     if [[ "${src_name}" == "${dst_name}" ]]; then
       continue

@@ -10,11 +10,11 @@ ETCD_REINIT_ON_PROVISION="${ETCD_REINIT_ON_PROVISION:-true}"
 ETCD_AUTO_RECOVER_ON_FAILURE="${ETCD_AUTO_RECOVER_ON_FAILURE:-true}"
 
 if [[ -f /vagrant/scripts/lib_apt.sh ]]; then
-  # shellcheck source=/vagrant/scripts/lib_apt.sh
+  # shellcheck source=/vagrant/scripts/lib_apt.sh disable=SC1091
   source /vagrant/scripts/lib_apt.sh
 else
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  # shellcheck source=lib_apt.sh
+  # shellcheck source=lib_apt.sh disable=SC1091
   source "${SCRIPT_DIR}/lib_apt.sh"
 fi
 

@@ -12,6 +12,10 @@ fog_warn_literal='[fog][WARNING] Unrecognized arguments: libvirt_ip_command'
 auto_unlock_mode="${VAGRANT_RETRY_AUTO_UNLOCK:-prompt}"
 force_unlock_used=0
 
+list_vagrant_processes() {
+  pgrep -af '(/opt/vagrant/bin/vagrant|/usr/bin/vagrant|ruby /opt/vagrant/embedded/gems/gems/vagrant)' || true
+}
+
 kill_stale_vagrant_processes() {
   local self_pid parent_pid pid cmdline
   self_pid="$$"
@@ -29,7 +33,7 @@ kill_stale_vagrant_processes() {
     if [[ "${cmdline}" == *"/opt/vagrant/bin/vagrant"* || "${cmdline}" == *"/usr/bin/vagrant"* || "${cmdline}" == *"ruby /opt/vagrant/embedded/gems/gems/vagrant"* ]]; then
       kill -TERM "${pid}" >/dev/null 2>&1 || true
     fi
-  done < <(ps -eo pid=,args= | grep -E 'vagrant|ruby .*/vagrant' | grep -v grep || true)
+  done < <(list_vagrant_processes)
 
   sleep 1
 
@@ -44,7 +48,7 @@ kill_stale_vagrant_processes() {
     if [[ "${cmdline}" == *"/opt/vagrant/bin/vagrant"* || "${cmdline}" == *"/usr/bin/vagrant"* || "${cmdline}" == *"ruby /opt/vagrant/embedded/gems/gems/vagrant"* ]]; then
       kill -KILL "${pid}" >/dev/null 2>&1 || true
     fi
-  done < <(ps -eo pid=,args= | grep -E 'vagrant|ruby .*/vagrant' | grep -v grep || true)
+  done < <(list_vagrant_processes)
 }
 
 attempt=1
