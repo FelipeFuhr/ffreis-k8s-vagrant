@@ -6,7 +6,7 @@
 .generated/
 .bake/
 
-# Cluster runtime artifacts (includes kubeconfig, join files, logs)
+# Cluster runtime artifacts (kubeconfig, join files, logs)
 .cluster/
 
 # Local operator overrides
@@ -15,7 +15,6 @@ config/cluster.env
 # Accidental files created by shell redirection typos
 cp*:
 worker*:
-
 
 # Generic editor/OS noise
 .DS_Store

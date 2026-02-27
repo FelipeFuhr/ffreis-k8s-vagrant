@@ -17,7 +17,8 @@ if [[ ! -f .cluster/admin.conf ]]; then
   exit 1
 fi
 
-export KUBECONFIG="$(pwd)/.cluster/admin.conf"
+KUBECONFIG="$(pwd)/.cluster/admin.conf"
+export KUBECONFIG
 
 echo "[check] node readiness"
 waited=0

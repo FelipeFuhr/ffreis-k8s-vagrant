@@ -1,0 +1,60 @@
+name: Security - SAST (Semgrep)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 11 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install semgrep
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install semgrep
+
+      - name: Run semgrep (SARIF)
+        id: semgrep_scan
+        run: |
+          set -uo pipefail
+          mkdir -p semgrep-results
+          semgrep scan --config auto --error --sarif --output semgrep-results/semgrep.sarif
+          rc=$?
+          echo "rc=${rc}" >> "${GITHUB_OUTPUT}"
+          exit 0
+
+      - name: Upload Semgrep SARIF
+        if: ${{ hashFiles('semgrep-results/semgrep.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep-results/semgrep.sarif
+          category: semgrep
+
+      - name: Enforce Semgrep policy
+        run: |
+          set -euo pipefail
+          rc="${{ steps.semgrep_scan.outputs.rc || '1' }}"
+          if [ "${rc}" != "0" ]; then
+            echo "Semgrep policy failed with exit code ${rc}" >&2
+            exit 1
+          fi

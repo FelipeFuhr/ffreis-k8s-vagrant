@@ -7,9 +7,17 @@ NETWORK_PREFIX="${NETWORK_PREFIX:-10.30.0}"
 API_LB_HOSTNAME="${API_LB_HOSTNAME:-k8s-api.local}"
 API_LB_IP="${API_LB_IP:-10.30.0.5}"
 
+if [[ -f /vagrant/scripts/lib_apt.sh ]]; then
+  # shellcheck source=/vagrant/scripts/lib_apt.sh disable=SC1091
+  source /vagrant/scripts/lib_apt.sh
+else
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=lib_apt.sh disable=SC1091
+  source "${SCRIPT_DIR}/lib_apt.sh"
+fi
+
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y haproxy
+install_missing_no_upgrade haproxy
 
 if ! grep -q "${API_LB_HOSTNAME}" /etc/hosts; then
   printf '%s %s\n' "${API_LB_IP}" "${API_LB_HOSTNAME}" >>/etc/hosts

@@ -7,11 +7,9 @@ have_cmd() {
 
 cpu_model="unknown"
 cpu_vendor="unknown"
-vt_flags="unknown"
 if [[ -f /proc/cpuinfo ]]; then
   cpu_model="$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo)"
   cpu_vendor="$(awk -F': ' '/vendor_id/ {print $2; exit}' /proc/cpuinfo)"
-  vt_flags="$(awk -F': ' '/flags/ {print $2; exit}' /proc/cpuinfo)"
 fi
 
 mem_gb="unknown"

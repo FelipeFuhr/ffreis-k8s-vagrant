@@ -1,0 +1,7 @@
+[
+  {"name":"cp1","role":"control-plane","ip":"10.44.0.11"},
+  {"name":"etcd2","role":"etcd","ip":"10.44.0.32"},
+  {"name":"worker1","role":"worker","ip":"10.44.0.101"},
+  {"name":"etcd1","role":"etcd","ip":"10.44.0.31"},
+  {"name":"etcd3","role":"etcd","ip":"10.44.0.33"}
+]

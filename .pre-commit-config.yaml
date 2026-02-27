@@ -1,0 +1,49 @@
+minimum_pre_commit_version: "3.6.0"
+
+default_stages: [pre-commit]
+fail_fast: false
+exclude: "^(.cluster/|.vagrant/|.generated/)"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-merge-conflict
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: check-yaml
+      - id: check-json
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        files: "^(scripts|examples|tests)/.*\\.sh$"
+
+  - repo: local
+    hooks:
+      - id: vagrantfile-syntax
+        name: ruby -c Vagrantfile
+        entry: bash -c 'ruby -c Vagrantfile'
+        language: system
+        pass_filenames: false
+        files: "^Vagrantfile$"
+
+      - id: static-checks
+        name: make test
+        entry: make test
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: example-self-tests
+        name: make test-examples
+        entry: make test-examples
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

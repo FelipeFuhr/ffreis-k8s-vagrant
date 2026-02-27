@@ -1,0 +1,83 @@
+name: Security - SCA/IaC (Snyk)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 10 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snyk:
+    if: ${{ secrets.SNYK_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js (for Snyk CLI)
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Snyk CLI
+        run: |
+          set -euo pipefail
+          npm install -g snyk
+          snyk --version
+
+      - name: Run Snyk Code
+        id: snyk_code
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p snyk-results
+          snyk code test --sarif-file-output=snyk-results/code.sarif
+          rc=$?
+          echo "rc=${rc}" >> "${GITHUB_OUTPUT}"
+          exit 0
+
+      - name: Run Snyk IaC
+        id: snyk_iac
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set -uo pipefail
+          snyk iac test . --sarif-file-output=snyk-results/iac.sarif
+          rc=$?
+          echo "rc=${rc}" >> "${GITHUB_OUTPUT}"
+          exit 0
+
+      - name: Upload Snyk Code SARIF
+        if: ${{ hashFiles('snyk-results/code.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-results/code.sarif
+          category: snyk-code
+
+      - name: Upload Snyk IaC SARIF
+        if: ${{ hashFiles('snyk-results/iac.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-results/iac.sarif
+          category: snyk-iac
+
+      - name: Enforce Snyk policy
+        run: |
+          set -euo pipefail
+          code_rc="${{ steps.snyk_code.outputs.rc || '1' }}"
+          iac_rc="${{ steps.snyk_iac.outputs.rc || '1' }}"
+          if [ "${code_rc}" != "0" ] || [ "${iac_rc}" != "0" ]; then
+            echo "Snyk policy failed: code_rc=${code_rc}, iac_rc=${iac_rc}" >&2
+            exit 1
+          fi

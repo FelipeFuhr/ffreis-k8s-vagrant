@@ -1,0 +1,116 @@
+name: CI - Cluster E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Makefile"
+      - "Vagrantfile"
+      - "config/**"
+      - "scripts/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/cluster-e2e.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-self-hosted:
+    name: E2E k8s (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
+    if: ${{ github.event_name != 'pull_request' || matrix.heavy != true }}
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cp: 1
+            wk: 1
+            heavy: false
+          - cp: 2
+            wk: 1
+            heavy: false
+          - cp: 3
+            wk: 0
+            heavy: true
+          - cp: 1
+            wk: 5
+            heavy: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Preflight tooling
+        run: |
+          set -euo pipefail
+          command -v vagrant >/dev/null
+          command -v virsh >/dev/null
+          command -v kubectl >/dev/null
+          command -v make >/dev/null
+
+      - name: Fresh teardown (best effort)
+        run: |
+          set -euo pipefail
+          make destroy || true
+
+      - name: Bring up topology
+        run: |
+          set -euo pipefail
+          make up KUBE_CP_COUNT=${{ matrix.cp }} KUBE_WORKER_COUNT=${{ matrix.wk }} KUBE_ETCD_COUNT=3 KUBE_API_LB_ENABLED=true
+
+      - name: Validate cluster
+        run: |
+          set -euo pipefail
+          make validate KUBE_CP_COUNT=${{ matrix.cp }} KUBE_WORKER_COUNT=${{ matrix.wk }}
+
+      - name: Verify expected control planes are Ready
+        run: |
+          set -euo pipefail
+          ready_cp_count="$(
+            KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get nodes -l node-role.kubernetes.io/control-plane \
+              --no-headers | awk '$2=="Ready" {count++} END {print count+0}'
+          )"
+          if [ "${ready_cp_count}" -lt "${{ matrix.cp }}" ]; then
+            echo "Expected at least ${{ matrix.cp }} Ready control-plane nodes, got ${ready_cp_count}"
+            KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get nodes -o wide
+            exit 1
+          fi
+
+      - name: Verify control-plane connectivity demo
+        run: |
+          set -euo pipefail
+          make cp-connectivity KUBE_CP_COUNT=${{ matrix.cp }} KUBE_WORKER_COUNT=${{ matrix.wk }}
+
+      - name: Verify taint/toleration demo
+        run: |
+          set -euo pipefail
+          make sanity-taints KUBE_CP_COUNT=${{ matrix.cp }} KUBE_WORKER_COUNT=${{ matrix.wk }}
+
+      - name: Verify control-plane failover demo
+        if: ${{ matrix.cp > 1 }}
+        run: |
+          set -euo pipefail
+          make cp-failover KUBE_CP_COUNT=${{ matrix.cp }} KUBE_WORKER_COUNT=${{ matrix.wk }}
+
+      - name: Collect debug snapshot
+        if: always()
+        run: |
+          set +e
+          vagrant status
+          if [ -f ".cluster/admin.conf" ]; then
+            KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get nodes -o wide
+            KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get pods -A -o wide
+          fi
+
+      - name: Final teardown (always)
+        if: always()
+        run: |
+          set +e
+          make destroy || true
