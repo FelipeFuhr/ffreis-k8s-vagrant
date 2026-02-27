@@ -119,6 +119,11 @@ recent_etcd_bootstrap_error() {
 
 render_etcd_unit() {
   local cluster_state="$1"
+  # NOTE: client and peer URLs use plain HTTP (no TLS). This is intentional for a
+  # local Vagrant development cluster only. Do NOT use this configuration in any
+  # environment reachable from untrusted networks. For production deployments,
+  # enable TLS on both client and peer URLs and configure mutual client
+  # authentication for all callers (API server, etcdctl, etc.).
   cat >/etc/systemd/system/etcd.service <<CFG
 [Unit]
 Description=etcd key-value store
