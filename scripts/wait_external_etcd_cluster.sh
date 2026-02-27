@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KUBE_NETWORK_PREFIX="${KUBE_NETWORK_PREFIX:-10.30.0}"
 KUBE_ETCD_COUNT="${KUBE_ETCD_COUNT:-3}"
 MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-420}"
 SLEEP_SECONDS="${SLEEP_SECONDS:-5}"
@@ -9,14 +8,6 @@ WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
 
 vagrant_cmd() {
   ./scripts/vagrant_retry.sh vagrant "$@"
-}
-
-build_etcd_endpoints() {
-  local endpoints="" i
-  for i in $(seq 1 "${KUBE_ETCD_COUNT}"); do
-    endpoints+="http://${KUBE_NETWORK_PREFIX}.$((20 + i)):2379,"
-  done
-  printf '%s' "${endpoints%,}"
 }
 
 log_wait_progress() {
@@ -39,7 +30,7 @@ log_wait_progress() {
   echo "${label} (${step}/${total_steps}, ${waited}s/${timeout}s elapsed)"
 }
 
-endpoints="$(build_etcd_endpoints)"
+endpoints="$(./scripts/resolve_etcd_endpoints.sh --format endpoints)"
 waited=0
 report_interval="${WAIT_REPORT_INTERVAL_SECONDS}"
 if [[ "${report_interval}" -lt "${SLEEP_SECONDS}" ]]; then
@@ -56,13 +47,18 @@ while true; do
     health_ok=1
   fi
 
-  member_count_raw="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list | sed '/^$/d' | wc -l" 2>/dev/null || true)"
-  member_count="$(tr -dc '0-9' <<<"${member_count_raw}")"
+  member_list="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list" 2>/dev/null || true)"
+  member_count="$(printf '%s\n' "${member_list}" | sed '/^$/d' | wc -l | tr -dc '0-9')"
   [[ -n "${member_count}" ]] || member_count=0
 
-  status_lines="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w table | sed -n '/2379/p'" 2>/dev/null || true)"
-  unique_ids="$(awk -F'|' '{id=$3; gsub(/ /,"",id); if(id!="") ids[id]=1} END{print (length(ids)+0)}' <<<"${status_lines}" 2>/dev/null || true)"
-  leader_count="$(awk -F'|' '{leader=$6; gsub(/ /,"",leader); if(leader=="true") c++} END{print (c+0)}' <<<"${status_lines}" 2>/dev/null || true)"
+  status_json="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w json" 2>/dev/null || true)"
+  if [[ -n "${status_json}" ]]; then
+    unique_ids="$(printf '%s' "${status_json}" | ./scripts/parse_etcd_endpoint_status.sh --field unique_ids || true)"
+    leader_count="$(printf '%s' "${status_json}" | ./scripts/parse_etcd_endpoint_status.sh --field leaders || true)"
+  else
+    unique_ids=0
+    leader_count=0
+  fi
   [[ -n "${unique_ids}" ]] || unique_ids=0
   [[ -n "${leader_count}" ]] || leader_count=0
 

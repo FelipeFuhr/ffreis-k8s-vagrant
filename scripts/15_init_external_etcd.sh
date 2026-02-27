@@ -6,8 +6,17 @@ ETCD_IP="${ETCD_IP:?ETCD_IP is required}"
 ETCD_INITIAL_CLUSTER="${ETCD_INITIAL_CLUSTER:?ETCD_INITIAL_CLUSTER is required}"
 ETCD_VERSION="${ETCD_VERSION:-3.5.15}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
-ETCD_REINIT_ON_PROVISION="${ETCD_REINIT_ON_PROVISION:-false}"
+ETCD_REINIT_ON_PROVISION="${ETCD_REINIT_ON_PROVISION:-true}"
 ETCD_AUTO_RECOVER_ON_FAILURE="${ETCD_AUTO_RECOVER_ON_FAILURE:-true}"
+
+if [[ -f /vagrant/scripts/lib_apt.sh ]]; then
+  # shellcheck source=/vagrant/scripts/lib_apt.sh
+  source /vagrant/scripts/lib_apt.sh
+else
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=lib_apt.sh
+  source "${SCRIPT_DIR}/lib_apt.sh"
+fi
 
 retry_download() {
   local url="$1"
@@ -78,8 +87,7 @@ wait_for_local_etcd() {
 }
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y -o APT::Update::Error-Mode=any
-apt-get install -y curl tar ca-certificates
+install_missing_no_upgrade curl tar ca-certificates
 
 if ! id -u etcd >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/etcd --shell /usr/sbin/nologin etcd

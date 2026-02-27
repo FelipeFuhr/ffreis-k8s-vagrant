@@ -24,12 +24,14 @@ etcd_version = ENV.fetch('KUBE_ETCD_VERSION', '3.5.15')
 etcd_reinit_on_provision = ENV.fetch('ETCD_REINIT_ON_PROVISION', 'true')
 etcd_auto_recover_on_failure = ENV.fetch('ETCD_AUTO_RECOVER_ON_FAILURE', 'true')
 ssh_pubkey = ENV.fetch('KUBE_SSH_PUBKEY', '')
+flannel_version = ENV.fetch('KUBE_FLANNEL_VERSION', 'v0.25.7')
 wait_report_interval_seconds = ENV.fetch('WAIT_REPORT_INTERVAL_SECONDS', '60')
 cp_join_max_attempts = ENV.fetch('CP_JOIN_MAX_ATTEMPTS', '8')
 cp_join_base_backoff_seconds = ENV.fetch('CP_JOIN_BASE_BACKOFF_SECONDS', '60')
 cp_join_max_backoff_seconds = ENV.fetch('CP_JOIN_MAX_BACKOFF_SECONDS', '240')
 etcd_warn_show_limit = ENV.fetch('ETCD_WARN_SHOW_LIMIT', '1')
 etcd_warn_report_interval_seconds = ENV.fetch('ETCD_WARN_REPORT_INTERVAL_SECONDS', '90')
+apt_cache_max_age_seconds = ENV.fetch('APT_CACHE_MAX_AGE_SECONDS', '21600')
 control_plane_endpoint = if api_lb_enabled
                            "#{api_lb_ip}:6443"
                          else
@@ -113,7 +115,8 @@ Vagrant.configure('2') do |config|
           'CP_COUNT' => cp_count.to_s,
           'NETWORK_PREFIX' => network_prefix,
           'API_LB_HOSTNAME' => api_lb_hostname,
-          'API_LB_IP' => api_lb_ip
+          'API_LB_IP' => api_lb_ip,
+          'APT_CACHE_MAX_AGE_SECONDS' => apt_cache_max_age_seconds
         }
       elsif node[:role] == 'etcd'
         # external etcd nodes have dedicated etcd provisioning only.
@@ -123,7 +126,8 @@ Vagrant.configure('2') do |config|
           'NODE_NAME' => node[:name],
           'CP_COUNT' => cp_count.to_s,
           'WORKER_COUNT' => worker_count.to_s,
-          'SSH_PUBKEY' => ssh_pubkey
+          'SSH_PUBKEY' => ssh_pubkey,
+          'APT_CACHE_MAX_AGE_SECONDS' => apt_cache_max_age_seconds
         }
       end
 
@@ -137,13 +141,15 @@ Vagrant.configure('2') do |config|
           'ETCD_VERSION' => etcd_version,
           'ETCD_REINIT_ON_PROVISION' => etcd_reinit_on_provision,
           'ETCD_AUTO_RECOVER_ON_FAILURE' => etcd_auto_recover_on_failure,
-          'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds
+          'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds,
+          'APT_CACHE_MAX_AGE_SECONDS' => apt_cache_max_age_seconds
         }
       elsif node[:name] == 'cp1'
         machine.vm.provision 'shell', path: 'scripts/10_init_control_plane.sh', env: {
           'CP1_IP' => "#{network_prefix}.11",
           'CONTROL_PLANE_ENDPOINT' => control_plane_endpoint,
           'CONTROL_PLANE_ENDPOINT_HOST' => api_lb_enabled ? api_lb_hostname : 'cp1',
+          'KUBE_FLANNEL_VERSION' => flannel_version,
           'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds,
           'EXTERNAL_ETCD_ENDPOINTS' => external_etcd_endpoints
         }

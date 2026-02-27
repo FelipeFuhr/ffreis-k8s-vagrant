@@ -1,0 +1,1 @@
+[{"Endpoint":"http://10.30.0.21:2379","Status":{"ID":1126555961199179934,"IsLeader":true}},{"Endpoint":"http://10.30.0.22:2379","Status":{"ID":13066337442308035313,"IsLeader":false}},{"Endpoint":"http://10.30.0.23:2379","Status":{"ID":15096138155037895326,"IsLeader":false}}]

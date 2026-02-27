@@ -5,8 +5,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "Vagrantfile"
       - "Makefile"
+      - "Vagrantfile"
       - "config/**"
       - "scripts/**"
       - "examples/**"
@@ -15,8 +15,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "Vagrantfile"
       - "Makefile"
+      - "Vagrantfile"
       - "config/**"
       - "scripts/**"
       - "examples/**"
@@ -50,3 +50,4 @@ jobs:
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
             -Dsonar.sources=.
             -Dsonar.exclusions=.git/**,.github/**,.vagrant/**,.cluster/**,.generated/**,**/*.md
+

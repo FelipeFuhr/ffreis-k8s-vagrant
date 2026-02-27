@@ -5,6 +5,11 @@ max_attempts="${VAGRANT_RETRY_ATTEMPTS:-10}"
 sleep_seconds="${VAGRANT_RETRY_SLEEP_SECONDS:-6}"
 lock_pattern="another process is already executing an action on the machine"
 fog_warn_literal='[fog][WARNING] Unrecognized arguments: libvirt_ip_command'
+# auto_unlock_mode:
+# - prompt (default): ask before killing stale local vagrant/ruby processes.
+# - true: auto-kill without prompt.
+# - false: never kill automatically.
+auto_unlock_mode="${VAGRANT_RETRY_AUTO_UNLOCK:-prompt}"
 force_unlock_used=0
 
 kill_stale_vagrant_processes() {
@@ -57,9 +62,19 @@ while true; do
 
     if [[ "${attempt}" -ge "${max_attempts}" ]]; then
       if [[ "${force_unlock_used}" -eq 0 ]]; then
-        printf 'Persistent Vagrant lock detected. Kill stale vagrant/ruby processes and retry once? [y/N] '
-        read -r ans
-        if [[ "${ans}" =~ ^[Yy]$ ]]; then
+        should_unlock="false"
+
+        if [[ "${auto_unlock_mode}" == "true" ]]; then
+          should_unlock="true"
+        elif [[ "${auto_unlock_mode}" == "auto" || "${auto_unlock_mode}" == "prompt" ]]; then
+          printf 'Persistent Vagrant lock detected. Kill stale vagrant/ruby processes and retry once? [y/N] '
+          read -r ans
+          if [[ "${ans}" =~ ^[Yy]$ ]]; then
+            should_unlock="true"
+          fi
+        fi
+
+        if [[ "${should_unlock}" == "true" ]]; then
           kill_stale_vagrant_processes
           find .vagrant -type f -name '*.lock' -delete >/dev/null 2>&1 || true
           force_unlock_used=1

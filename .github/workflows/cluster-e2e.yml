@@ -4,11 +4,12 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "Vagrantfile"
       - "Makefile"
+      - "Vagrantfile"
       - "config/**"
       - "scripts/**"
       - "examples/**"
+      - "tests/**"
       - ".github/workflows/cluster-e2e.yml"
   workflow_dispatch:
   schedule:
@@ -23,7 +24,8 @@ permissions:
 
 jobs:
   e2e-self-hosted:
-    name: Vagrant Bring-up + Validate (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
+    name: E2E k8s (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
+    if: ${{ github.event_name != 'pull_request' || matrix.heavy != true }}
     runs-on: [self-hosted, linux]
     timeout-minutes: 180
     strategy:
@@ -32,8 +34,16 @@ jobs:
         include:
           - cp: 1
             wk: 1
+            heavy: false
           - cp: 2
             wk: 1
+            heavy: false
+          - cp: 3
+            wk: 0
+            heavy: true
+          - cp: 1
+            wk: 5
+            heavy: true
     steps:
       - uses: actions/checkout@v6
 
@@ -94,7 +104,7 @@ jobs:
         run: |
           set +e
           vagrant status
-          if [ -f .cluster/admin.conf ]; then
+          if [ -f ".cluster/admin.conf" ]; then
             KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get nodes -o wide
             KUBECONFIG="$PWD/.cluster/admin.conf" kubectl get pods -A -o wide
           fi
@@ -104,3 +114,4 @@ jobs:
         run: |
           set +e
           make destroy || true
+

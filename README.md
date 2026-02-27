@@ -24,12 +24,15 @@ Deterministic kubeadm-based Kubernetes lab on Vagrant VMs.
    You can also override any variable per command, for example: `make up KUBE_CP_COUNT=2 KUBE_WORKER_COUNT=0`.
    For multi-control-plane join behavior, tune `CP_JOIN_*` and `ETCD_WARN_*` variables.
    For generic progress logging cadence across waiting loops, tune `WAIT_REPORT_INTERVAL_SECONDS`.
+   For faster reprovision loops, tune `APT_CACHE_MAX_AGE_SECONDS` (default 21600s).
 4. Create cluster:
    ```bash
    make up
    make kubeconfig
    make validate
    ```
+   By default, `make up` auto-runs `make destroy` if bring-up fails.
+   Disable with: `make up AUTO_CLEANUP_ON_FAILURE=false`.
 
 ## Inputs this project expects from your local system
 Run `make probe-host` and use the output to choose:
@@ -37,7 +40,7 @@ Run `make probe-host` and use the output to choose:
 - `KUBE_CP_COUNT` / `KUBE_WORKER_COUNT` based on available RAM and CPU.
 - `KUBE_ETCD_COUNT`: dedicated external etcd replicas (`>=3`, typically `3`).
 - `KUBE_ETCD_VERSION`: external etcd version (default `3.5.15`).
-- `KUBE_CNI`: start with `flannel`, then compare with `calico` or `cilium`.
+- `KUBE_CNI`: default `calico`; use `flannel` for a lighter bootstrap path or `cilium` for advanced eBPF features.
 
 ## External etcd
 This lab always runs dedicated etcd nodes. Default is 3 replicas:
@@ -55,8 +58,8 @@ make compare-cni
 ```
 
 Suggested progression:
-1. Validate baseline with `KUBE_CNI=flannel`.
-2. Re-test with `KUBE_CNI=calico` for network-policy workflows.
+1. Validate baseline with `KUBE_CNI=calico`.
+2. Re-test with `KUBE_CNI=flannel` if you want faster/lighter bootstrap comparisons.
 3. Re-test with `KUBE_CNI=cilium` if your kernel/resources are suitable.
 
 For each variation:
@@ -88,11 +91,31 @@ When `KUBE_CP_COUNT=1`, `api-lb` is skipped automatically to reduce CPU/RAM usag
 - `make probe-host`: prints host CPU/memory/virtualization/provider signals.
 - `make doctor`: verifies required commands/plugins.
 - `make compare-cni`: prints CNI tradeoffs.
+- `make etcd-connectivity`: checks external etcd health/leader/member/peer connectivity.
 - `make up`: starts all VMs and provisions Kubernetes.
+- `make up-etcd`: bring up/provision only etcd nodes, then wait for quorum.
+- `make up-cp1`: bring up/provision only `cp1`.
+- `make up-cps`: bring up/provision only `cp2..cpN`.
+- `make up-workers`: bring up/provision only workers.
+- `make up-node NODE=...`: bring up one node without provisioning.
+- `make provision-node NODE=...`: provision one node.
 - `make kubeconfig`: copies kubeconfig from `cp1` to `.cluster/admin.conf`.
+- `make kubeconfig-ha`: creates `.cluster/admin-ha.conf` targeting the API LB endpoint.
 - `make validate`: checks node readiness, CoreDNS, and scheduling.
 - `make destroy`: tears down VMs and generated state.
 - `make test`: static checks for scripts and `Vagrantfile`.
+
+## HA kubectl via API LB
+For multi-control-plane topologies (`KUBE_CP_COUNT>1` and `KUBE_API_LB_ENABLED=true`):
+```bash
+make kubeconfig-ha
+KUBECONFIG="$PWD/.cluster/admin-ha.conf" kubectl get nodes -o wide
+```
+
+Optional override if you want a custom server value in HA kubeconfig:
+```bash
+make kubeconfig-ha KUBE_HA_KUBECONFIG_SERVER=https://10.30.0.5:6443
+```
 
 ## Examples
 Control-plane connectivity check (from host):
@@ -103,6 +126,19 @@ make cp-connectivity
 It validates `cp1..cpN` peer reachability with:
 - ICMP ping between control-plane nodes.
 - TCP connectivity on `6443` between control-plane nodes.
+
+External etcd connectivity/leader check (from host):
+```bash
+./examples/check_etcd_connectivity.sh
+make etcd-connectivity
+```
+It validates:
+- Endpoint health for all etcd endpoints.
+- Member count and unique member IDs.
+- Exactly one etcd leader.
+- Peer TCP connectivity on `2379` and `2380` between etcd nodes.
+
+These checks resolve etcd endpoints from `.vagrant-nodes.json` (generated from `Vagrantfile`) as the primary source of truth, with `EXTERNAL_ETCD_ENDPOINTS` as an override for endpoint checks.
 
 Example script self-test (verifies success/failure exit paths):
 ```bash

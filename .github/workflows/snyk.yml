@@ -5,8 +5,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "Vagrantfile"
       - "Makefile"
+      - "Vagrantfile"
       - "config/**"
       - "scripts/**"
       - "examples/**"
@@ -15,8 +15,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "Vagrantfile"
       - "Makefile"
+      - "Vagrantfile"
       - "config/**"
       - "scripts/**"
       - "examples/**"
@@ -52,19 +52,27 @@ jobs:
           snyk --version
 
       - name: Run Snyk Code
+        id: snyk_code
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p snyk-results
-          snyk code test --sarif-file-output=snyk-results/code.sarif || true
+          snyk code test --sarif-file-output=snyk-results/code.sarif
+          rc=$?
+          echo "rc=${rc}" >> "${GITHUB_OUTPUT}"
+          exit 0
 
       - name: Run Snyk IaC
+        id: snyk_iac
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          set -euo pipefail
-          snyk iac test . --sarif-file-output=snyk-results/iac.sarif || true
+          set -uo pipefail
+          snyk iac test . --sarif-file-output=snyk-results/iac.sarif
+          rc=$?
+          echo "rc=${rc}" >> "${GITHUB_OUTPUT}"
+          exit 0
 
       - name: Upload Snyk Code SARIF
         if: ${{ hashFiles('snyk-results/code.sarif') != '' }}
@@ -79,3 +87,14 @@ jobs:
         with:
           sarif_file: snyk-results/iac.sarif
           category: snyk-iac
+
+      - name: Enforce Snyk policy
+        run: |
+          set -euo pipefail
+          code_rc="${{ steps.snyk_code.outputs.rc || '1' }}"
+          iac_rc="${{ steps.snyk_iac.outputs.rc || '1' }}"
+          if [ "${code_rc}" != "0" ] || [ "${iac_rc}" != "0" ]; then
+            echo "Snyk policy failed: code_rc=${code_rc}, iac_rc=${iac_rc}" >&2
+            exit 1
+          fi
+

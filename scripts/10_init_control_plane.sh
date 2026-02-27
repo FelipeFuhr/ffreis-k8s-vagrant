@@ -6,7 +6,8 @@ CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT:-${CP1_IP}:6443}"
 CONTROL_PLANE_ENDPOINT_HOST="${CONTROL_PLANE_ENDPOINT_HOST:-cp1}"
 KUBE_POD_CIDR="${KUBE_POD_CIDR:-10.244.0.0/16}"
 KUBE_SERVICE_CIDR="${KUBE_SERVICE_CIDR:-10.96.0.0/12}"
-KUBE_CNI="${KUBE_CNI:-flannel}"
+KUBE_CNI="${KUBE_CNI:-calico}"
+KUBE_FLANNEL_VERSION="${KUBE_FLANNEL_VERSION:-v0.25.7}"
 KUBE_VERSION="${KUBE_VERSION:-1.30.6-1.1}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
 EXTERNAL_ETCD_ENDPOINTS="${EXTERNAL_ETCD_ENDPOINTS:-}"
@@ -264,7 +265,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 
 case "${KUBE_CNI}" in
   flannel)
-    kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+    kubectl apply -f "https://raw.githubusercontent.com/flannel-io/flannel/${KUBE_FLANNEL_VERSION}/Documentation/kube-flannel.yml"
     ;;
   calico)
     kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml

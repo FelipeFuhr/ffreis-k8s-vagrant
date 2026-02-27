@@ -18,7 +18,10 @@ mapfile -t ids < <(
       NF < 5 {next}
       {
         id=$1
-        path=$NF
+        path=""
+        for (i=5; i<=NF; i++) {
+          path = path (i == 5 ? "" : " ") $i
+        }
         if (path == dir) {
           print id
         }
