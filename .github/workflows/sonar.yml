@@ -4,24 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-    paths:
-      - "Makefile"
-      - "Vagrantfile"
-      - "config/**"
-      - "scripts/**"
-      - "examples/**"
-      - "tests/**"
-      - ".github/workflows/sonar.yml"
   push:
     branches: [main]
-    paths:
-      - "Makefile"
-      - "Vagrantfile"
-      - "config/**"
-      - "scripts/**"
-      - "examples/**"
-      - "tests/**"
-      - ".github/workflows/sonar.yml"
 
 permissions:
   contents: read
