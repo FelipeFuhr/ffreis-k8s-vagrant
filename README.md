@@ -92,6 +92,13 @@ When `KUBE_CP_COUNT=1`, `api-lb` is skipped automatically to reduce CPU/RAM usag
 - `make doctor`: verifies required commands/plugins.
 - `make compare-cni`: prints CNI tradeoffs.
 - `make etcd-connectivity`: checks external etcd health/leader/member/peer connectivity.
+- `make cp-connectivity`: checks control-plane reachability (`cp1..cpN`).
+- `make cp-failover`: simulates control-plane failover and verifies recovery.
+- `make sanity-taints`: validates taints/tolerations scheduling behavior on workers.
+- `make ssh-cp N=1`: interactive SSH into `cpN`.
+- `make ssh-worker N=1`: interactive SSH into `workerN`.
+- `make ssh-cps CMD='hostname -f'`: runs a command on all control-plane nodes.
+- `make ssh-workers CMD='hostname -f'`: runs a command on all worker nodes.
 - `make up`: starts all VMs and provisions Kubernetes.
 - `make up-etcd`: bring up/provision only etcd nodes, then wait for quorum.
 - `make up-cp1`: bring up/provision only `cp1`.
@@ -103,7 +110,8 @@ When `KUBE_CP_COUNT=1`, `api-lb` is skipped automatically to reduce CPU/RAM usag
 - `make kubeconfig-ha`: creates `.cluster/admin-ha.conf` targeting the API LB endpoint.
 - `make validate`: checks node readiness, CoreDNS, and scheduling.
 - `make destroy`: tears down VMs and generated state.
-- `make test`: static checks for scripts and `Vagrantfile`.
+- `make test-examples`: runs example script self-tests.
+- `make test`: runs static checks and example script self-tests.
 
 ## HA kubectl via API LB
 For multi-control-plane topologies (`KUBE_CP_COUNT>1` and `KUBE_API_LB_ENABLED=true`):
