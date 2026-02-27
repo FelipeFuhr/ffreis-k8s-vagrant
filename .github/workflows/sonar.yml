@@ -1,4 +1,4 @@
-name: Code Quality (Sonar)
+name: Quality - SonarCloud
 
 on:
   workflow_dispatch:
@@ -50,4 +50,3 @@ jobs:
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
             -Dsonar.sources=.
             -Dsonar.exclusions=.git/**,.github/**,.vagrant/**,.cluster/**,.generated/**,**/*.md
-

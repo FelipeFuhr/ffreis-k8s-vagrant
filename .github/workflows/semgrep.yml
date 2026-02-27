@@ -1,4 +1,4 @@
-name: Security Scan (Semgrep)
+name: Security - SAST (Semgrep)
 
 on:
   workflow_dispatch:
@@ -74,4 +74,3 @@ jobs:
             echo "Semgrep policy failed with exit code ${rc}" >&2
             exit 1
           fi
-

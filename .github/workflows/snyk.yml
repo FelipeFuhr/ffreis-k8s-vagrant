@@ -1,4 +1,4 @@
-name: Security Scan (Snyk)
+name: Security - SCA/IaC (Snyk)
 
 on:
   workflow_dispatch:
@@ -97,4 +97,3 @@ jobs:
             echo "Snyk policy failed: code_rc=${code_rc}, iac_rc=${iac_rc}" >&2
             exit 1
           fi
-
