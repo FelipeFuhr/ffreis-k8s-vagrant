@@ -7,6 +7,7 @@ lock_pattern="another process is already executing an action on the machine"
 fog_warn_literal='[fog][WARNING] Unrecognized arguments: libvirt_ip_command'
 # auto_unlock_mode:
 # - prompt (default): ask before killing stale local vagrant/ruby processes.
+# - auto: alias for prompt; ask before killing stale local vagrant/ruby processes.
 # - true: auto-kill without prompt.
 # - false: never kill automatically.
 auto_unlock_mode="${VAGRANT_RETRY_AUTO_UNLOCK:-prompt}"

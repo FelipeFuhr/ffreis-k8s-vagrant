@@ -42,21 +42,21 @@ emit_fallback_nodes() {
 emit_from_nodes_json() {
   local out
   out="$(
-    ruby -rjson -e '
+    ruby -rjson - "${NODES_FILE}" "${format}" 2>/dev/null <<'RUBY'
       begin
         nodes = JSON.parse(File.read(ARGV[0]))
       rescue
         exit 2
       end
-      etcd = nodes.select { |n| n["role"] == "etcd" && n["name"] && n["ip"] }
+      etcd = nodes.select { |n| n['role'] == 'etcd' && n['name'] && n['ip'] }
       exit 3 if etcd.empty?
-      etcd.sort_by! { |n| n["name"].sub(/^etcd/, "").to_i }
+      etcd.sort_by! { |n| n['name'].sub(/^etcd/, "").to_i }
       if ARGV[1] == "nodes"
-        etcd.each { |n| puts "#{n["name"]} #{n["ip"]}" }
+        etcd.each { |n| puts "#{n['name']} #{n['ip']}" }
       else
-        puts etcd.map { |n| "http://#{n["ip"]}:2379" }.join(",")
+        puts etcd.map { |n| "http://#{n['ip']}:2379" }.join(",")
       end
-    ' "${NODES_FILE}" "${format}" 2>/dev/null
+RUBY
   )" || return 1
   printf '%s\n' "${out}"
 }
@@ -72,9 +72,11 @@ if [[ "${format}" == "endpoints" && -n "${EXTERNAL_ETCD_ENDPOINTS:-}" ]]; then
   exit 0
 fi
 
-if [[ -f "${NODES_FILE}" ]] && emit_from_nodes_json >/dev/null 2>&1; then
-  emit_from_nodes_json
-  exit 0
+if [[ -f "${NODES_FILE}" ]]; then
+  if nodes_output="$(emit_from_nodes_json)"; then
+    printf '%s\n' "${nodes_output}"
+    exit 0
+  fi
 fi
 
 if [[ "${format}" == "nodes" ]]; then
