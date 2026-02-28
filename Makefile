@@ -2,10 +2,13 @@
 
 -include config/cluster.env
 AUTO_CLEANUP_ON_FAILURE ?= true
+NODE_INVENTORY_FILE ?=
 export
 VAGRANT_RUN := ./scripts/vagrant_retry.sh vagrant
 PROJECT_LIBVIRT_PREFIX := $(shell basename "$(CURDIR)" | tr -cd '[:alnum:]_-')_
 LEGACY_LIBVIRT_PREFIX := ffreis-k8s-vagrant-lab_
+LIST_NODES := ./scripts/list_nodes.sh
+GET_NODE_IP := ./scripts/get_node_ip.sh
 
 .PHONY: help
 help:
@@ -29,6 +32,7 @@ help:
 	@echo "- provision-node NODE=name\t: provision a single node"
 	@echo "- up\t\t\t: bring up cluster and refresh .cluster/admin.conf (auto-destroy on failure by default)"
 	@echo "  AUTO_CLEANUP_ON_FAILURE=true|false"
+	@echo "- validate-inventory NODE_INVENTORY_FILE=... : validate inventory file contract"
 	@echo "- kubeconfig\t\t: fetch kubeconfig to .cluster/admin.conf"
 	@echo "- kubeconfig-ha\t\t: build HA kubeconfig via api-lb at .cluster/admin-ha.conf"
 	@echo "- validate\t\t: run post-deploy feature checks"
@@ -103,39 +107,50 @@ provision-node:
 
 .PHONY: up-etcd
 up-etcd:
+	@etcd_nodes="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_ETCD_COUNT='$(KUBE_ETCD_COUNT)' $(LIST_NODES) etcd)"; \
+	if [ -z "$${etcd_nodes}" ]; then echo "No etcd nodes resolved."; exit 1; fi; \
 	set -e; \
-	for i in $$(seq 1 "$${KUBE_ETCD_COUNT:-3}"); do \
-		$(VAGRANT_RUN) up "etcd$${i}" --provider "$${KUBE_PROVIDER}" --no-provision; \
-		$(VAGRANT_RUN) provision "etcd$${i}"; \
+	for node in $${etcd_nodes}; do \
+		$(VAGRANT_RUN) up "$${node}" --provider "$${KUBE_PROVIDER}" --no-provision; \
+		$(VAGRANT_RUN) provision "$${node}"; \
 	done
-	./scripts/wait_external_etcd_cluster.sh
+	@primary_etcd="$$(printf '%s\n' "$${etcd_nodes}" | head -n1)"; \
+	PRIMARY_ETCD_NAME="$${primary_etcd}" ./scripts/wait_external_etcd_cluster.sh
 
 .PHONY: up-cp1
 up-cp1:
-	$(VAGRANT_RUN) up cp1 --provider "$${KUBE_PROVIDER}" --no-provision
-	$(VAGRANT_RUN) provision cp1
-	./scripts/wait_cp_api_ready.sh
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	if [ -z "$${primary_cp}" ]; then echo "No control-plane nodes resolved."; exit 1; fi; \
+	$(VAGRANT_RUN) up "$${primary_cp}" --provider "$${KUBE_PROVIDER}" --no-provision; \
+	$(VAGRANT_RUN) provision "$${primary_cp}"; \
+	PRIMARY_CP_NAME="$${primary_cp}" ./scripts/wait_cp_api_ready.sh
 
 .PHONY: up-cps
 up-cps:
-	@if [ "$${KUBE_CP_COUNT:-1}" -le 1 ]; then echo "KUBE_CP_COUNT<=1, no additional control planes."; exit 0; fi
+	@cp_nodes="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane)"; \
+	cp_count="$$(printf '%s\n' "$${cp_nodes}" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
+	if [ "$${cp_count}" -le 1 ]; then echo "Only one control-plane resolved; no additional control planes."; exit 0; fi; \
+	primary_cp="$$(printf '%s\n' "$${cp_nodes}" | head -n1)"; \
+	etcd_nodes="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_ETCD_COUNT='$(KUBE_ETCD_COUNT)' $(LIST_NODES) etcd)"; \
+	primary_etcd="$$(printf '%s\n' "$${etcd_nodes}" | head -n1)"; \
 	set -e; \
-	for i in $$(seq 2 "$${KUBE_CP_COUNT}"); do \
-		./scripts/wait_cp_api_ready.sh; \
-		./scripts/wait_external_etcd_cluster.sh; \
-		$(VAGRANT_RUN) up "cp$${i}" --provider "$${KUBE_PROVIDER}" --no-provision; \
-		$(VAGRANT_RUN) provision "cp$${i}"; \
-		./scripts/wait_cp_api_ready.sh; \
-		./scripts/wait_external_etcd_cluster.sh; \
+	printf '%s\n' "$${cp_nodes}" | tail -n +2 | while read -r node; do \
+		PRIMARY_CP_NAME="$${primary_cp}" ./scripts/wait_cp_api_ready.sh; \
+		PRIMARY_ETCD_NAME="$${primary_etcd}" ./scripts/wait_external_etcd_cluster.sh; \
+		$(VAGRANT_RUN) up "$${node}" --provider "$${KUBE_PROVIDER}" --no-provision; \
+		$(VAGRANT_RUN) provision "$${node}"; \
+		PRIMARY_CP_NAME="$${primary_cp}" ./scripts/wait_cp_api_ready.sh; \
+		PRIMARY_ETCD_NAME="$${primary_etcd}" ./scripts/wait_external_etcd_cluster.sh; \
 	done
 
 .PHONY: up-workers
 up-workers:
-	@if [ "$${KUBE_WORKER_COUNT:-0}" -le 0 ]; then echo "No workers configured (KUBE_WORKER_COUNT=0)."; exit 0; fi
+	@worker_nodes="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_WORKER_COUNT='$(KUBE_WORKER_COUNT)' $(LIST_NODES) worker)"; \
+	if [ -z "$${worker_nodes}" ]; then echo "No workers resolved."; exit 0; fi; \
 	set -e; \
-	for i in $$(seq 1 "$${KUBE_WORKER_COUNT}"); do \
-		$(VAGRANT_RUN) up "worker$${i}" --provider "$${KUBE_PROVIDER}" --no-provision; \
-		$(VAGRANT_RUN) provision "worker$${i}"; \
+	for node in $${worker_nodes}; do \
+		$(VAGRANT_RUN) up "$${node}" --provider "$${KUBE_PROVIDER}" --no-provision; \
+		$(VAGRANT_RUN) provision "$${node}"; \
 	done
 
 .PHONY: up
@@ -157,25 +172,35 @@ up-core:
 	mkdir -p .cluster
 	rm -f .cluster/ready .cluster/failed
 	# Start and provision API load balancer first when enabled.
-	@effective_api_lb="false"; \
-	if [ "$${KUBE_API_LB_ENABLED:-true}" = "true" ] && [ "$${KUBE_CP_COUNT:-1}" -gt 1 ]; then effective_api_lb="true"; fi; \
-	echo "Topology: control-planes=$${KUBE_CP_COUNT} workers=$${KUBE_WORKER_COUNT} external-etcd=$${KUBE_ETCD_COUNT:-3} api-lb=$${effective_api_lb}"
-	if [ "$${KUBE_API_LB_ENABLED:-true}" = "true" ] && [ "$${KUBE_CP_COUNT:-1}" -gt 1 ]; then $(VAGRANT_RUN) up api-lb --provider "$${KUBE_PROVIDER}" --no-provision; fi
-	if [ "$${KUBE_API_LB_ENABLED:-true}" = "true" ] && [ "$${KUBE_CP_COUNT:-1}" -gt 1 ]; then $(VAGRANT_RUN) provision api-lb; fi
+	@cp_count="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | sed '/^$$/d' | wc -l | tr -d ' ')"; \
+	worker_count="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_WORKER_COUNT='$(KUBE_WORKER_COUNT)' $(LIST_NODES) worker | sed '/^$$/d' | wc -l | tr -d ' ')"; \
+	etcd_count="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_ETCD_COUNT='$(KUBE_ETCD_COUNT)' $(LIST_NODES) etcd | sed '/^$$/d' | wc -l | tr -d ' ')"; \
+	api_lb_node="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' KUBE_API_LB_ENABLED='$(KUBE_API_LB_ENABLED)' $(LIST_NODES) api-lb | head -n1)"; \
+	effective_api_lb="false"; \
+	if [ -n "$${api_lb_node}" ]; then effective_api_lb="true"; fi; \
+	echo "Topology: control-planes=$${cp_count} workers=$${worker_count} external-etcd=$${etcd_count} api-lb=$${effective_api_lb}"; \
+	if [ -n "$${api_lb_node}" ]; then $(VAGRANT_RUN) up "$${api_lb_node}" --provider "$${KUBE_PROVIDER}" --no-provision; fi; \
+	if [ -n "$${api_lb_node}" ]; then $(VAGRANT_RUN) provision "$${api_lb_node}"; fi
 	# Bootstrap dedicated etcd nodes before cp1.
 	$(MAKE) up-etcd
 	# Bootstrap the first control plane (creates join artifacts).
 	$(MAKE) up-cp1
 	./scripts/wait_external_etcd_cluster.sh
-	$(VAGRANT_RUN) ssh cp1 -c 'test -f /vagrant/.cluster/ready'
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'test -f /vagrant/.cluster/ready'
 	# Copy join materials from cp1 VM to host workspace for subsequent joins.
-	$(VAGRANT_RUN) ssh cp1 -c 'sudo cat /vagrant/.cluster/join.sh' | tr -d '\r' > .cluster/join.sh
-	$(VAGRANT_RUN) ssh cp1 -c 'sudo cat /vagrant/.cluster/certificate-key' | tr -d '\r' > .cluster/certificate-key
-	$(VAGRANT_RUN) ssh cp1 -c 'sudo cat /vagrant/.cluster/admin.conf' | tr -d '\r' > .cluster/admin.conf
-	$(VAGRANT_RUN) ssh cp1 -c 'sudo base64 -w0 /vagrant/.cluster/pki-control-plane.tgz' | base64 -d > .cluster/pki-control-plane.tgz
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo cat /vagrant/.cluster/join.sh' | tr -d '\r' > .cluster/join.sh
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo cat /vagrant/.cluster/certificate-key' | tr -d '\r' > .cluster/certificate-key
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo cat /vagrant/.cluster/admin.conf' | tr -d '\r' > .cluster/admin.conf
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo base64 -w0 /vagrant/.cluster/pki-control-plane.tgz' | base64 -d > .cluster/pki-control-plane.tgz
 	# Validate control-plane PKI artifact integrity before cp2+ joins.
 	tar -tzf .cluster/pki-control-plane.tgz >/dev/null
-	expected_hash="$$( $(VAGRANT_RUN) ssh cp1 -c 'sudo sha256sum /vagrant/.cluster/pki-control-plane.tgz | cut -d" " -f1' | tr -d '\r' )"; \
+	primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	expected_hash="$$( $(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo sha256sum /vagrant/.cluster/pki-control-plane.tgz | cut -d" " -f1' | tr -d '\r' )"; \
 	actual_hash="$$(sha256sum .cluster/pki-control-plane.tgz | cut -d' ' -f1)"; \
 	if [ "$${actual_hash}" != "$${expected_hash}" ]; then \
 		echo "PKI artifact checksum mismatch: expected=$${expected_hash} actual=$${actual_hash}" >&2; \
@@ -194,8 +219,16 @@ up-core:
 kubeconfig:
 	# Refresh local kubeconfig from cp1 for kubectl against this lab cluster.
 	mkdir -p .cluster
-	$(VAGRANT_RUN) ssh cp1 -c 'sudo cat /etc/kubernetes/admin.conf' > .cluster/admin.conf
+	@primary_cp="$$(NODE_INVENTORY_FILE='$(NODE_INVENTORY_FILE)' KUBE_CP_COUNT='$(KUBE_CP_COUNT)' $(LIST_NODES) control-plane | head -n1)"; \
+	$(VAGRANT_RUN) ssh "$${primary_cp}" -c 'sudo cat /etc/kubernetes/admin.conf' > .cluster/admin.conf
 	chmod 600 .cluster/admin.conf
+	@echo "Kubeconfig refreshed at .cluster/admin.conf"
+	@echo "To run, point kubectl by running:"
+	@echo "  KUBECONFIG=\$$PWD/.cluster/admin.conf kubectl get nodes -o wide"
+	@echo "Optional shell setup for less verbose commands:"
+	@echo "  export KUBECONFIG=\$$PWD/.cluster/admin.conf"
+	@echo "  alias k='kubectl'"
+	@echo "  k get pods -A"
 
 .PHONY: kubeconfig-ha
 kubeconfig-ha: kubeconfig
@@ -205,6 +238,12 @@ kubeconfig-ha: kubeconfig
 .PHONY: validate
 validate:
 	./scripts/validate_cluster.sh
+
+.PHONY: validate-inventory
+validate-inventory:
+	@if [ -z "$(NODE_INVENTORY_FILE)" ]; then echo "NODE_INVENTORY_FILE is required"; exit 1; fi
+	@./scripts/load_node_inventory.py "$(NODE_INVENTORY_FILE)" >/dev/null
+	@echo "Inventory file is valid: $(NODE_INVENTORY_FILE)"
 
 .PHONY: destroy
 destroy:

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'yaml'
 
 cp_count = Integer(ENV.fetch('KUBE_CP_COUNT', '3'))
 worker_count = Integer(ENV.fetch('KUBE_WORKER_COUNT', '2'))
@@ -32,6 +33,7 @@ cp_join_max_backoff_seconds = ENV.fetch('CP_JOIN_MAX_BACKOFF_SECONDS', '240')
 etcd_warn_show_limit = ENV.fetch('ETCD_WARN_SHOW_LIMIT', '1')
 etcd_warn_report_interval_seconds = ENV.fetch('ETCD_WARN_REPORT_INTERVAL_SECONDS', '90')
 apt_cache_max_age_seconds = ENV.fetch('APT_CACHE_MAX_AGE_SECONDS', '21600')
+node_inventory_file = ENV.fetch('NODE_INVENTORY_FILE', '').strip
 control_plane_endpoint = if api_lb_enabled
                            "#{api_lb_ip}:6443"
                          else
@@ -47,51 +49,87 @@ if etcd_count < 3
 end
 
 nodes = []
+if !node_inventory_file.empty?
+  raw_inventory = YAML.safe_load(File.read(node_inventory_file))
+  raw_nodes = raw_inventory.is_a?(Hash) ? raw_inventory['nodes'] : raw_inventory
+  raise 'NODE_INVENTORY_FILE must contain a top-level nodes list' unless raw_nodes.is_a?(Array)
 
-if api_lb_enabled
-  nodes << {
-    name: 'api-lb',
-    role: 'api-lb',
-    ip: api_lb_ip,
-    cpus: api_lb_cpus,
-    memory: api_lb_memory
+  role_map = {
+    'control-plane' => 'control-plane',
+    'worker' => 'worker',
+    'etcd' => 'etcd',
+    'api-lb' => 'api-lb'
   }
+  nodes = raw_nodes.map do |node|
+    role = role_map.fetch(node['role']) { raise "Unsupported role '#{node['role']}' in NODE_INVENTORY_FILE" }
+    {
+      name: node.fetch('name'),
+      role: role,
+      ip: node.fetch('ip'),
+      cpus: Integer(node.fetch('cpu')),
+      memory: Integer(node.fetch('memory_mb'))
+    }
+  end
+else
+  if api_lb_enabled
+    nodes << {
+      name: 'api-lb',
+      role: 'api-lb',
+      ip: api_lb_ip,
+      cpus: api_lb_cpus,
+      memory: api_lb_memory
+    }
+  end
+
+  etcd_nodes = []
+  (1..etcd_count).each do |index|
+    etcd_nodes << {
+      name: "etcd#{index}",
+      role: 'etcd',
+      ip: "#{network_prefix}.#{20 + index}",
+      cpus: etcd_cpus,
+      memory: etcd_memory
+    }
+  end
+  nodes.concat(etcd_nodes)
+
+  (1..cp_count).each do |index|
+    nodes << {
+      name: "cp#{index}",
+      role: 'control-plane',
+      ip: "#{network_prefix}.#{10 + index}",
+      cpus: cp_cpus,
+      memory: cp_memory
+    }
+  end
+
+  (1..worker_count).each do |index|
+    nodes << {
+      name: "worker#{index}",
+      role: 'worker',
+      ip: "#{network_prefix}.#{100 + index}",
+      cpus: worker_cpus,
+      memory: worker_memory
+    }
+  end
 end
 
-etcd_nodes = []
-(1..etcd_count).each do |index|
-  etcd_nodes << {
-    name: "etcd#{index}",
-    role: 'etcd',
-    ip: "#{network_prefix}.#{20 + index}",
-    cpus: etcd_cpus,
-    memory: etcd_memory
-  }
-end
-nodes.concat(etcd_nodes)
+etcd_nodes = nodes.select { |node| node[:role] == 'etcd' }
+control_plane_nodes = nodes.select { |node| node[:role] == 'control-plane' }
+raise 'NODE_INVENTORY_FILE must define at least one control-plane node' if control_plane_nodes.empty?
+raise 'NODE_INVENTORY_FILE must define at least three etcd nodes' if etcd_nodes.size < 3
+primary_control_plane = control_plane_nodes.first
+cp_count = control_plane_nodes.size
 
-(1..cp_count).each do |index|
-  nodes << {
-    name: "cp#{index}",
-    role: 'control-plane',
-    ip: "#{network_prefix}.#{10 + index}",
-    cpus: cp_cpus,
-    memory: cp_memory
-  }
-end
+resolved_api_lb = nodes.find { |node| node[:role] == 'api-lb' }
+control_plane_endpoint = if resolved_api_lb
+                           "#{resolved_api_lb[:ip]}:6443"
+                         else
+                           "#{primary_control_plane[:ip]}:6443"
+                         end
 
 external_etcd_endpoints = etcd_nodes.map { |node| "http://#{node[:ip]}:2379" }.join(',')
 external_etcd_initial_cluster = etcd_nodes.map { |node| "#{node[:name]}=http://#{node[:ip]}:2380" }.join(',')
-
-(1..worker_count).each do |index|
-  nodes << {
-    name: "worker#{index}",
-    role: 'worker',
-    ip: "#{network_prefix}.#{100 + index}",
-    cpus: worker_cpus,
-    memory: worker_memory
-  }
-end
 
 File.write('.vagrant-nodes.json', JSON.pretty_generate(nodes))
 
@@ -144,11 +182,11 @@ Vagrant.configure('2') do |config|
           'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds,
           'APT_CACHE_MAX_AGE_SECONDS' => apt_cache_max_age_seconds
         }
-      elsif node[:name] == 'cp1'
+      elsif node[:name] == primary_control_plane[:name]
         machine.vm.provision 'shell', path: 'scripts/10_init_control_plane.sh', env: {
-          'CP1_IP' => "#{network_prefix}.11",
+          'CP1_IP' => primary_control_plane[:ip],
           'CONTROL_PLANE_ENDPOINT' => control_plane_endpoint,
-          'CONTROL_PLANE_ENDPOINT_HOST' => api_lb_enabled ? api_lb_hostname : 'cp1',
+          'CONTROL_PLANE_ENDPOINT_HOST' => resolved_api_lb ? api_lb_hostname : primary_control_plane[:name],
           'KUBE_FLANNEL_VERSION' => flannel_version,
           'WAIT_REPORT_INTERVAL_SECONDS' => wait_report_interval_seconds,
           'EXTERNAL_ETCD_ENDPOINTS' => external_etcd_endpoints

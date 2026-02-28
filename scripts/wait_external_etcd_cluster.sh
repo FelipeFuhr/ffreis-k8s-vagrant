@@ -5,6 +5,7 @@ KUBE_ETCD_COUNT="${KUBE_ETCD_COUNT:-3}"
 MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-420}"
 SLEEP_SECONDS="${SLEEP_SECONDS:-5}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
+PRIMARY_ETCD_NAME="${PRIMARY_ETCD_NAME:-etcd1}"
 
 vagrant_cmd() {
   ./scripts/vagrant_retry.sh vagrant "$@"
@@ -43,15 +44,15 @@ while true; do
   unique_ids=0
   leader_count=0
 
-  if vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint health >/dev/null 2>&1"; then
+  if vagrant_cmd ssh "${PRIMARY_ETCD_NAME}" -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint health >/dev/null 2>&1"; then
     health_ok=1
   fi
 
-  member_list="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list" 2>/dev/null || true)"
+  member_list="$(vagrant_cmd ssh "${PRIMARY_ETCD_NAME}" -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} member list" 2>/dev/null || true)"
   member_count="$(printf '%s\n' "${member_list}" | sed '/^$/d' | wc -l | tr -dc '0-9')"
   [[ -n "${member_count}" ]] || member_count=0
 
-  status_json="$(vagrant_cmd ssh etcd1 -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w json" 2>/dev/null || true)"
+  status_json="$(vagrant_cmd ssh "${PRIMARY_ETCD_NAME}" -c "ETCDCTL_API=3 etcdctl --endpoints=${endpoints} endpoint status -w json" 2>/dev/null || true)"
   if [[ -n "${status_json}" ]]; then
     unique_ids="$(printf '%s' "${status_json}" | ./scripts/parse_etcd_endpoint_status.sh --field unique_ids || true)"
     leader_count="$(printf '%s' "${status_json}" | ./scripts/parse_etcd_endpoint_status.sh --field leaders || true)"

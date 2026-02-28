@@ -4,6 +4,7 @@ set -euo pipefail
 MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-420}"
 SLEEP_SECONDS="${SLEEP_SECONDS:-5}"
 WAIT_REPORT_INTERVAL_SECONDS="${WAIT_REPORT_INTERVAL_SECONDS:-60}"
+PRIMARY_CP_NAME="${PRIMARY_CP_NAME:-cp1}"
 
 vagrant_cmd() {
   ./scripts/vagrant_retry.sh vagrant "$@"
@@ -36,7 +37,7 @@ if [[ "${report_interval}" -lt "${SLEEP_SECONDS}" ]]; then
 fi
 
 while true; do
-  if vagrant_cmd ssh cp1 -c 'sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get --raw=/readyz >/dev/null 2>&1'; then
+  if vagrant_cmd ssh "${PRIMARY_CP_NAME}" -c 'sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get --raw=/readyz >/dev/null 2>&1'; then
     if [[ "${waited}" -gt 0 ]]; then
       echo "Control-plane API is ready after ${waited}s"
     fi
