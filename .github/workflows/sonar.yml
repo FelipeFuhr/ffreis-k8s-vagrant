@@ -15,16 +15,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  require-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+        run: |
+          set -euo pipefail
+          [ -n "${SONAR_TOKEN}" ] || (echo "Missing required secret: SONAR_TOKEN" >&2; exit 1)
+          [ -n "${SONAR_PROJECT_KEY}" ] || (echo "Missing required secret: SONAR_PROJECT_KEY" >&2; exit 1)
+          [ -n "${SONAR_ORGANIZATION}" ] || (echo "Missing required secret: SONAR_ORGANIZATION" >&2; exit 1)
+
   sonar:
     if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_PROJECT_KEY != '' && secrets.SONAR_ORGANIZATION != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Sonar scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
