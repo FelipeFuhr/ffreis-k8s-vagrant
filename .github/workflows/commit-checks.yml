@@ -1,0 +1,46 @@
+name: Commit Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shell-and-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install shell tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y shellcheck
+
+      - name: Shellcheck scripts
+        run: |
+          set -euo pipefail
+          while IFS= read -r script; do
+            shellcheck "${script}"
+          done < <(find scripts tests -type f -name '*.sh' | sort)
+
+      - name: Verify Vagrantfile syntax
+        run: |
+          set -euo pipefail
+          ruby -c Vagrantfile
+
+      - name: Verify YAML render pipeline
+        run: |
+          set -euo pipefail
+          ./scripts/config/render_env_from_yaml.sh config/cluster.yaml .generated/cluster.mk
+          grep -q '^KUBE_CP_COUNT :=' .generated/cluster.mk
+          grep -q '^KUBE_VERSION :=' .generated/cluster.mk

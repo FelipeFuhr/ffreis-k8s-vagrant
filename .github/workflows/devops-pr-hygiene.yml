@@ -1,0 +1,46 @@
+name: DevOps / PR Hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semantic-pr.yml@c3436c5a6ff32cfa42a401079a2b09e7724fccdf
+
+  actionlint:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-actionlint.yml@c3436c5a6ff32cfa42a401079a2b09e7724fccdf
+    with:
+      working-directory: "."
+
+  labeler:
+    if: github.event_name == 'pull_request_target'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-labeler.yml@c3436c5a6ff32cfa42a401079a2b09e7724fccdf
+    with:
+      rules-json: |-
+        [
+          {"label":"ci","patterns":[".github/workflows/**",".github/actions/**"]},
+          {"label":"vagrant","patterns":["Vagrantfile","**/*.rb"]},
+          {"label":"scripts","patterns":["scripts/**","**/*.sh","tests/**"]},
+          {"label":"docs","patterns":["**/*.md"]}
+        ]
+

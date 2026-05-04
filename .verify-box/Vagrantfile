@@ -1,0 +1,12 @@
+Vagrant.configure("2") do |config|
+  config.ssh.insert_key = false
+  config.vm.box = "ffreis/k8s-base-ubuntu24"
+  config.vm.box_version = "" unless "".empty?
+  config.vm.define "verify-box", primary: true do |m|
+    m.vm.hostname = "verify-box"
+    m.vm.provider "libvirt" do |p|
+      p.cpus = 1
+      p.memory = 1024
+    end
+  end
+end
