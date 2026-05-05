@@ -1,12 +1,3 @@
-<<<<<<< HEAD
-name: CodeQL
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-=======
 # For most projects, this workflow file will not need changing; you simply need
 # to commit it to your repository.
 #
@@ -26,26 +17,10 @@ on:
   pull_request:
     # The branches below must be a subset of the branches above
     branches: ["main"]
->>>>>>> origin/main
   schedule:
     - cron: "0 0 * * 1"
 
 permissions:
-<<<<<<< HEAD
-  actions: read
-  contents: read
-  security-events: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  codeql:
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@01e2b12e992621fecf074b8a202f66044196f3bf
-    with:
-      languages: "python"
-=======
   contents: read
 
 jobs:
@@ -96,4 +71,3 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{matrix.language}}"
->>>>>>> origin/main
