@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -18,4 +19,4 @@ concurrency:
 
 jobs:
   semgrep:
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@main
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@01e2b12e992621fecf074b8a202f66044196f3bf # v1.0.4

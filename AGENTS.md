@@ -21,7 +21,7 @@ plane HA, and configurable CNI.
   CPU/memory/virtualization limits. Run this before first bring-up.
 
 - **CNI options:** calico (default), flannel (lighter), cilium (eBPF). Change via
-  `cluster.env`. Calico requires more CPU than flannel; use flannel for minimal VMs.
+  `config/cluster.env`. Calico requires more CPU than flannel; use flannel for minimal VMs.
 
 - **Box version is pinned** (`bento/ubuntu-24.04` with specific version). Never
   change to `latest` — uncontrolled provisioning changes will cause silent breakage.
