@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   sonar:
+    timeout-minutes: 30
     if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_PROJECT_KEY != '' && secrets.SONAR_ORGANIZATION != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     steps:
