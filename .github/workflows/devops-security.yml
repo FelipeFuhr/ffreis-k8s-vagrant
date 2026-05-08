@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   gitleaks:
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -27,6 +28,7 @@ jobs:
       upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   shellcheck:
+    timeout-minutes: 30
     permissions:
       contents: read
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-shellcheck.yml@main
@@ -34,6 +36,7 @@ jobs:
       working-directory: "."
 
   trivy-fs:
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -44,6 +47,7 @@ jobs:
       upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   grype-fs:
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read

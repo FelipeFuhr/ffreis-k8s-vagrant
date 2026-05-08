@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   e2e-self-hosted:
+    if: ${{ !github.event.pull_request.draft }}
     name: Vagrant Bring-up + Validate (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
     runs-on: [self-hosted, linux]
     timeout-minutes: 180
