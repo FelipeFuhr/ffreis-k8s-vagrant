@@ -19,15 +19,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   e2e-self-hosted:
     name: E2E k8s (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
     if: ${{ github.event_name != 'pull_request' || matrix.heavy != true }}
     runs-on: [self-hosted, linux]
     timeout-minutes: 180
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
