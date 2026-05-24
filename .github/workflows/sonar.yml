@@ -17,7 +17,9 @@ concurrency:
 jobs:
   sonar:
     timeout-minutes: 30
-    if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_PROJECT_KEY != '' && secrets.SONAR_ORGANIZATION != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    # Gate via repo variable (vars.SONAR_ENABLED). The `secrets` context is not
+    # available in job-level `if:` — using it triggers a startup_failure.
+    if: ${{ vars.SONAR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)

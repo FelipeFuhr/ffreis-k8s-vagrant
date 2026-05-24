@@ -20,7 +20,9 @@ concurrency:
 jobs:
   snyk:
     timeout-minutes: 30
-    if: ${{ secrets.SNYK_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    # Gate via repo variable (vars.SNYK_ENABLED). The `secrets` context is not
+    # available in job-level `if:` — using it triggers a startup_failure.
+    if: ${{ vars.SNYK_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
