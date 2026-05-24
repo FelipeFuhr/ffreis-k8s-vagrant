@@ -9,14 +9,14 @@ on:
   schedule:
     - cron: "0 11 * * 1"
 
-permissions:
-  contents: read
-  security-events: write
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   semgrep:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@9d1fde17e23354e2650258481fa6b2a7a6f67e40 # v1.1.0
