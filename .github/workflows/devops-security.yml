@@ -42,7 +42,7 @@ jobs:
     with:
       working-directory: "."
       scan-history: true
-      upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      upload-sarif: false
 
   shellcheck:
     permissions:
@@ -65,7 +65,7 @@ jobs:
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-trivy-fs.yml@d9792d01b442d7f2d3d2c6855cb312d885594e0f # v1.2.1
     with:
       scan-ref: "."
-      upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      upload-sarif: false
 
   grype-fs:
     needs: changes
@@ -81,5 +81,5 @@ jobs:
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@d9792d01b442d7f2d3d2c6855cb312d885594e0f # v1.2.1
     with:
       path: "."
-      upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+      upload-sarif: false
 
