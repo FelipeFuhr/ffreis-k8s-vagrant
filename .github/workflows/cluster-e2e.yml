@@ -1,19 +1,12 @@
 name: CI - Cluster E2E
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "Makefile"
-      - "Vagrantfile"
-      - "config/**"
-      - "scripts/**"
-      - "examples/**"
-      - "tests/**"
-      - ".github/workflows/cluster-e2e.yml"
+  # DISABLED: this E2E job needs a self-hosted runner that does not currently
+  # exist (only `act` runs locally). The pull_request + schedule triggers were
+  # removed so the job cannot sit queued for 24h waiting for a runner that never
+  # connects. Manual-only via workflow_dispatch; runs-on stays [self-hosted] for
+  # documented local/future use.
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * 1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
