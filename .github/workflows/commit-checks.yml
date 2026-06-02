@@ -2,6 +2,7 @@ name: CI - Fast Checks (pre-commit)
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       - "Makefile"
@@ -33,6 +34,7 @@ concurrency:
 
 jobs:
   commit-checks:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
