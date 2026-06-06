@@ -15,11 +15,13 @@ assert_eq() {
 }
 
 parse_unique() {
-  ./scripts/parse_etcd_endpoint_status.sh --field unique_ids "$1"
+  local fixture="$1"
+  ./scripts/parse_etcd_endpoint_status.sh --field unique_ids "${fixture}"
 }
 
 parse_leaders() {
-  ./scripts/parse_etcd_endpoint_status.sh --field leaders "$1"
+  local fixture="$1"
+  ./scripts/parse_etcd_endpoint_status.sh --field leaders "${fixture}"
 }
 
 fixture1="tests/fixtures/etcd-status-id-isleader.json"

@@ -176,26 +176,24 @@ if wait_for_local_etcd; then
   etcd_ready=1
 fi
 
-if [[ "${etcd_ready}" -eq 0 ]]; then
-  if [[ "${ETCD_AUTO_RECOVER_ON_FAILURE}" == "true" ]]; then
-    echo "Local etcd failed first start on ${ETCD_NAME}; attempting one-time recovery restart" >&2
-    if [[ -d /var/lib/etcd/default/member ]] || recent_etcd_bootstrap_error; then
-      echo "Detected existing member state on ${ETCD_NAME}; retrying with initial-cluster-state=existing" >&2
-      cluster_state="existing"
-      render_etcd_unit "${cluster_state}"
-      systemctl daemon-reload
-      systemctl restart etcd || true
-    else
-      echo "No usable member state detected on ${ETCD_NAME}; reinitializing local etcd data dir" >&2
-      reset_etcd_data_dir
-      cluster_state="new"
-      render_etcd_unit "${cluster_state}"
-      systemctl daemon-reload
-      systemctl restart etcd || true
-    fi
-    if wait_for_local_etcd; then
-      etcd_ready=1
-    fi
+if [[ "${etcd_ready}" -eq 0 ]] && [[ "${ETCD_AUTO_RECOVER_ON_FAILURE}" == "true" ]]; then
+  echo "Local etcd failed first start on ${ETCD_NAME}; attempting one-time recovery restart" >&2
+  if [[ -d /var/lib/etcd/default/member ]] || recent_etcd_bootstrap_error; then
+    echo "Detected existing member state on ${ETCD_NAME}; retrying with initial-cluster-state=existing" >&2
+    cluster_state="existing"
+    render_etcd_unit "${cluster_state}"
+    systemctl daemon-reload
+    systemctl restart etcd || true
+  else
+    echo "No usable member state detected on ${ETCD_NAME}; reinitializing local etcd data dir" >&2
+    reset_etcd_data_dir
+    cluster_state="new"
+    render_etcd_unit "${cluster_state}"
+    systemctl daemon-reload
+    systemctl restart etcd || true
+  fi
+  if wait_for_local_etcd; then
+    etcd_ready=1
   fi
 fi
 

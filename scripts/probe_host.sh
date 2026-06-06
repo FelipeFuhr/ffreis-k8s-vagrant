@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+UNKNOWN="unknown"
+
 have_cmd() {
-  command -v "$1" >/dev/null 2>&1
+  local cmd="$1"
+  command -v "${cmd}" >/dev/null 2>&1
 }
 
-cpu_model="unknown"
-cpu_vendor="unknown"
+cpu_model="${UNKNOWN}"
+cpu_vendor="${UNKNOWN}"
 if [[ -f /proc/cpuinfo ]]; then
   cpu_model="$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo)"
   cpu_vendor="$(awk -F': ' '/vendor_id/ {print $2; exit}' /proc/cpuinfo)"
 fi
 
-mem_gb="unknown"
+mem_gb="${UNKNOWN}"
 if [[ -f /proc/meminfo ]]; then
   mem_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
   mem_gb="$((mem_kb / 1024 / 1024))"
@@ -51,7 +54,7 @@ if [[ "${vmx_svm}" != "yes" ]]; then
   printf 'WARN: CPU virtualization extensions not detected. Nested virtualization may be disabled in BIOS/UEFI.\n'
 fi
 
-if [[ "${mem_gb}" != "unknown" ]]; then
+if [[ "${mem_gb}" != "${UNKNOWN}" ]]; then
   if (( mem_gb < 16 )); then
     printf 'WARN: <16GiB RAM. Start with KUBE_CP_COUNT=1 and KUBE_WORKER_COUNT=1.\n'
   elif (( mem_gb < 24 )); then
