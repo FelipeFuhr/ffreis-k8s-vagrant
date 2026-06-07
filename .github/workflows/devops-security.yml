@@ -5,7 +5,7 @@ on:
   push:
     branches: [main, master]
   schedule:
-    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+    - cron: "0 5 25-31 * 0"  # last Sunday of month, 05:00 UTC
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +16,6 @@ permissions:
 
 jobs:
   gitleaks:
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -28,7 +27,6 @@ jobs:
       upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   shellcheck:
-    timeout-minutes: 30
     permissions:
       contents: read
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-shellcheck.yml@main
@@ -36,7 +34,6 @@ jobs:
       working-directory: "."
 
   trivy-fs:
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -47,7 +44,6 @@ jobs:
       upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
   grype-fs:
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
