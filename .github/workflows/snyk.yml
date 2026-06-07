@@ -34,7 +34,7 @@ jobs:
       - name: Install Snyk CLI
         run: |
           set -euo pipefail
-          npm install -g snyk
+          npm install -g snyk@1.1296.2 --ignore-scripts
           snyk --version
 
       - name: Run Snyk Code
