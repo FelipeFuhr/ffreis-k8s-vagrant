@@ -35,11 +35,13 @@ apt_update_if_stale() {
 }
 
 pkg_installed() {
-  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+  local pkg="$1"
+  dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q "install ok installed"
 }
 
 pkg_version() {
-  dpkg-query -W -f='${Version}' "$1" 2>/dev/null || true
+  local pkg="$1"
+  dpkg-query -W -f='${Version}' "${pkg}" 2>/dev/null || true
 }
 
 install_missing_no_upgrade() {

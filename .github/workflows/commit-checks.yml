@@ -54,8 +54,8 @@ jobs:
       - name: Install pre-commit
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install pre-commit
+          python -m pip install --upgrade pip==25.1.1
+          python -m pip install pre-commit==4.2.0
 
       - name: Cache pre-commit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

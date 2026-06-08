@@ -16,6 +16,9 @@ config/cluster.env
 cp*:
 worker*:
 
+# SonarCloud scanner artifacts
+.scannerwork/
+
 # Generic editor/OS noise
 .DS_Store
 *~

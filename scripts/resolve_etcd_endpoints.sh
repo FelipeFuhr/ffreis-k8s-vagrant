@@ -72,11 +72,9 @@ if [[ "${format}" == "endpoints" && -n "${EXTERNAL_ETCD_ENDPOINTS:-}" ]]; then
   exit 0
 fi
 
-if [[ -f "${NODES_FILE}" ]]; then
-  if nodes_output="$(emit_from_nodes_json)"; then
-    printf '%s\n' "${nodes_output}"
-    exit 0
-  fi
+if [[ -f "${NODES_FILE}" ]] && nodes_output="$(emit_from_nodes_json)"; then
+  printf '%s\n' "${nodes_output}"
+  exit 0
 fi
 
 if [[ "${format}" == "nodes" ]]; then
