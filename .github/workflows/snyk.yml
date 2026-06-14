@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   snyk:
-    if: ${{ secrets.SNYK_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

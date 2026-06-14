@@ -40,4 +40,3 @@ jobs:
           {"label":"scripts","patterns":["scripts/**","**/*.sh","tests/**"]},
           {"label":"docs","patterns":["**/*.md"]}
         ]
-

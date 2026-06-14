@@ -25,15 +25,15 @@ end
 fi
 
 if [[ "${name}" =~ ^cp([0-9]+)$ ]]; then
-  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((10 + ${BASH_REMATCH[1]}))"
+  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((10 + BASH_REMATCH[1]))"
   exit 0
 fi
 if [[ "${name}" =~ ^etcd([0-9]+)$ ]]; then
-  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((20 + ${BASH_REMATCH[1]}))"
+  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((20 + BASH_REMATCH[1]))"
   exit 0
 fi
 if [[ "${name}" =~ ^worker([0-9]+)$ ]]; then
-  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((100 + ${BASH_REMATCH[1]}))"
+  echo "${KUBE_NETWORK_PREFIX:-10.30.0}.$((100 + BASH_REMATCH[1]))"
   exit 0
 fi
 if [[ "${name}" == "api-lb" ]]; then
