@@ -1,5 +1,9 @@
 # Vagrant Kubernetes Cluster Lab
 
+<!-- ffreis-badges:start -->
+[![CI](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/FelipeFuhr/ffreis-badges/main/badges/ffreis-k8s-vagrant/ci.json)](https://github.com/FelipeFuhr/ffreis-k8s-vagrant/actions)
+<!-- ffreis-badges:end -->
+
 Deterministic kubeadm-based Kubernetes lab on Vagrant VMs.
 
 ## What this gives you
