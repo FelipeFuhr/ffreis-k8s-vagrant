@@ -15,4 +15,4 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@ef5f76c297dba0d2990210a905d045c826092427 # v1.4.3
+    uses: ffreis-org/ffreis-workflows-general/.github/workflows/general-semgrep.yml@ef5f76c297dba0d2990210a905d045c826092427 # v1.4.3
