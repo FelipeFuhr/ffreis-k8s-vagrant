@@ -1,10 +1,10 @@
 name: CI - Cluster E2E
 
 on:
-  # DISABLED: this E2E job needs a self-hosted runner that does not currently
+  # DISABLED: this E2E job needs a hosted runner that does not currently
   # exist (only `act` runs locally). The pull_request + schedule triggers were
   # removed so the job cannot sit queued for 24h waiting for a runner that never
-  # connects. Manual-only via workflow_dispatch; runs-on stays [self-hosted] for
+  # connects. Manual-only via workflow_dispatch; runs-on stays [hosted] for
   # documented local/future use.
   workflow_dispatch:
 
@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e-self-hosted:
+  e2e-hosted:
     name: E2E k8s (cp=${{ matrix.cp }} wk=${{ matrix.wk }})
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
       contents: read
